@@ -1,9 +1,9 @@
 import { X } from 'lucide-react'
 
-export default function Modal({ titulo, onClose, children, footer }) {
+export default function Modal({ titulo, onClose, children, footer, largo = false }) {
   return (
     <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="modal">
+      <div className={'modal' + (largo ? ' modal-largo' : '')}>
         <div className="modal-header">
           <h3>{titulo}</h3>
           <button className="icon-btn" onClick={onClose} aria-label="Fechar">

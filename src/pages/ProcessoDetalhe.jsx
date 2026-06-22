@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Plus, ChevronDown, ChevronRight, Pencil, ShieldAlert, Truck,
-  MapPin, Paperclip, Upload, Trash2, FileText,
+  MapPin, Paperclip, Upload, Trash2, FileText, FileSignature, ScrollText,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import SaldoBar from '../components/SaldoBar'
@@ -14,6 +14,9 @@ const STATUS_OPCOES = ['EM_ANDAMENTO', 'GANHOU', 'DECLINOU', 'DESCLASSIFICADO', 
 const LABELS_TIPO = { nota_empenho: 'Nota de empenho', nota_fiscal: 'Nota fiscal', outro: 'Outro documento' }
 
 function hoje() { return new Date().toISOString().slice(0, 10) }
+function novoItemLinha() {
+  return { _key: Math.random().toString(36).slice(2), produto_nome_livre: '', marca: '', modelo: '', unidade: 'UN', quantidade_contratada: '', valor_unitario: '', prazo_entrega_dias: 30 }
+}
 
 export default function ProcessoDetalhe() {
   const { id } = useParams()
@@ -32,17 +35,26 @@ export default function ProcessoDetalhe() {
   const [empenhoExpandido, setEmpenhoExpandido] = useState(null)
 
   const [modalProcesso, setModalProcesso] = useState(false)
-  const [modalContrato, setModalContrato] = useState(false)
+  const [modalAtaContrato, setModalAtaContrato] = useState(null) // 'ATA' | 'EMPENHO_DIRETO' | null
   const [modalItem, setModalItem] = useState(false)
   const [modalEmpenho, setModalEmpenho] = useState(null) // item_contrato_id
   const [modalEntrega, setModalEntrega] = useState(null) // empenho_id
   const [salvandoEmpenho, setSalvandoEmpenho] = useState(false)
+  const [salvandoAtaContrato, setSalvandoAtaContrato] = useState(false)
   const [enviandoAnexo, setEnviandoAnexo] = useState(null)
   const [arquivoNotaEmpenho, setArquivoNotaEmpenho] = useState(null)
   const [arquivoNotaFiscal, setArquivoNotaFiscal] = useState(null)
+  const [arquivoAtaContrato, setArquivoAtaContrato] = useState(null)
 
   const [formProcesso, setFormProcesso] = useState({})
-  const [formContrato, setFormContrato] = useState({ numero_ata: '', tipo: 'ATA', data_assinatura: '', vigencia_meses: 12 })
+  const [formContrato, setFormContrato] = useState({
+    numero_ata: '', data_assinatura: '', data_inicio_vigencia: '', vigencia_meses: 12,
+    viabilidade: '', observacoes: '',
+    prazo_entrega_dias: '', prazo_entrega_uteis: false,
+    prazo_pagamento_dias: '', prazo_pagamento_uteis: false,
+    telefone_contato: '', email_contato: '',
+  })
+  const [itensForm, setItensForm] = useState([novoItemLinha()])
   const [formItem, setFormItem] = useState({ produto_nome_livre: '', quantidade_contratada: '', valor_unitario: '', prazo_entrega_dias: 30 })
   const [formEmpenho, setFormEmpenho] = useState({
     numero_empenho: '', data_emissao: hoje(), quantidade_empenhada: '',
@@ -141,24 +153,96 @@ export default function ProcessoDetalhe() {
   }
 
   // ---------- Contrato ----------
-  async function salvarContrato(e) {
+  function abrirModalAtaContrato(tipo) {
+    setErro('')
+    setFormContrato({
+      numero_ata: '', data_assinatura: '', data_inicio_vigencia: '', vigencia_meses: 12,
+      viabilidade: '', observacoes: '',
+      prazo_entrega_dias: '', prazo_entrega_uteis: false,
+      prazo_pagamento_dias: '', prazo_pagamento_uteis: false,
+      telefone_contato: '', email_contato: '',
+    })
+    setItensForm([novoItemLinha()])
+    setArquivoAtaContrato(null)
+    setModalAtaContrato(tipo)
+  }
+
+  function adicionarLinhaItem() {
+    setItensForm(prev => [...prev, novoItemLinha()])
+  }
+
+  function removerLinhaItem(key) {
+    setItensForm(prev => prev.length > 1 ? prev.filter(l => l._key !== key) : prev)
+  }
+
+  function atualizarLinhaItem(key, campo, valor) {
+    setItensForm(prev => prev.map(l => l._key === key ? { ...l, [campo]: valor } : l))
+  }
+
+  const totalItensForm = itensForm.reduce((soma, l) => {
+    const qtd = Number(l.quantidade_contratada) || 0
+    const valor = Number(l.valor_unitario) || 0
+    return soma + qtd * valor
+  }, 0)
+
+  async function salvarAtaContrato(e) {
     e.preventDefault()
     setErro('')
+
+    const linhasValidas = itensForm.filter(l => l.produto_nome_livre.trim() && l.quantidade_contratada !== '' && l.valor_unitario !== '')
+    if (linhasValidas.length === 0) {
+      setErro('Adicione pelo menos um item com descrição, quantidade e valor unitário preenchidos.')
+      return
+    }
+
+    setSalvandoAtaContrato(true)
     const dataAssinatura = formContrato.data_assinatura
     const vencimento = dataAssinatura
       ? new Date(new Date(dataAssinatura).setMonth(new Date(dataAssinatura).getMonth() + Number(formContrato.vigencia_meses))).toISOString().slice(0, 10)
       : null
 
-    const { error } = await supabase.from('contratos').insert({
+    const { data: novoContrato, error } = await supabase.from('contratos').insert({
       processo_id: id,
       numero_ata: formContrato.numero_ata,
-      tipo: formContrato.tipo,
+      tipo: modalAtaContrato,
       data_assinatura: dataAssinatura || null,
+      data_inicio_vigencia: formContrato.data_inicio_vigencia || null,
       vigencia_meses: formContrato.vigencia_meses,
       data_vencimento: vencimento,
-    })
-    if (error) { setErro(error.message); return }
-    setModalContrato(false)
+      viabilidade: formContrato.viabilidade || null,
+      observacoes: formContrato.observacoes || null,
+      prazo_entrega_dias: formContrato.prazo_entrega_dias ? Number(formContrato.prazo_entrega_dias) : null,
+      prazo_entrega_uteis: formContrato.prazo_entrega_uteis,
+      prazo_pagamento_dias: formContrato.prazo_pagamento_dias ? Number(formContrato.prazo_pagamento_dias) : null,
+      prazo_pagamento_uteis: formContrato.prazo_pagamento_uteis,
+      telefone_contato: formContrato.telefone_contato || null,
+      email_contato: formContrato.email_contato || null,
+    }).select().single()
+
+    if (error) { setErro(error.message); setSalvandoAtaContrato(false); return }
+
+    if (arquivoAtaContrato) {
+      const caminho = `${novoContrato.id}/${Date.now()}-${arquivoAtaContrato.name}`
+      const { error: erroUpload } = await supabase.storage.from('documentos-empenho').upload(caminho, arquivoAtaContrato)
+      if (!erroUpload) {
+        await supabase.from('contratos').update({ caminho_arquivo: caminho }).eq('id', novoContrato.id)
+      }
+    }
+
+    const itensParaInserir = linhasValidas.map(l => ({
+      contrato_id: novoContrato.id,
+      produto_nome_livre: l.produto_nome_livre,
+      marca: l.marca || null,
+      modelo: l.modelo || null,
+      quantidade_contratada: Number(l.quantidade_contratada),
+      valor_unitario: Number(l.valor_unitario),
+      prazo_entrega_dias: Number(l.prazo_entrega_dias) || 30,
+    }))
+    const { error: erroItens } = await supabase.from('itens_contrato').insert(itensParaInserir)
+    if (erroItens) { setErro('Ata/contrato criado, mas houve um problema ao salvar os itens: ' + erroItens.message) }
+
+    setSalvandoAtaContrato(false)
+    setModalAtaContrato(null)
     carregar()
   }
 
@@ -358,9 +442,14 @@ export default function ProcessoDetalhe() {
         <div className="card card-pad" style={{ textAlign: 'center' }}>
           <p className="text-muted" style={{ marginBottom: 12 }}>Este processo ainda não tem contrato/ATA cadastrado.</p>
           {ehAdmin && (
-            <button className="btn btn-primary" onClick={() => setModalContrato(true)}>
-              <Plus size={15} aria-hidden="true" /> Criar contrato / ATA
-            </button>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <button className="btn btn-primary" onClick={() => abrirModalAtaContrato('ATA')}>
+                <ScrollText size={15} aria-hidden="true" /> Adicionar Ata
+              </button>
+              <button className="btn btn-secondary" onClick={() => abrirModalAtaContrato('EMPENHO_DIRETO')}>
+                <FileSignature size={15} aria-hidden="true" /> Adicionar Contrato
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -370,7 +459,9 @@ export default function ProcessoDetalhe() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <FileText size={16} aria-hidden="true" className="text-muted" />
-              <span style={{ fontWeight: 600 }}>{contrato.numero_ata || 'Sem número de ATA'}</span>
+              <span style={{ fontWeight: 600 }}>
+                {contrato.numero_ata || `Sem número`} <span className="text-muted" style={{ fontWeight: 500, fontSize: 12 }}>({contrato.tipo === 'ATA' ? 'Ata' : 'Contrato'})</span>
+              </span>
               {vencContrato && <span className={`badge ${vencContrato.cls}`}>{vencContrato.label}</span>}
             </div>
             {ehAdmin && (
@@ -396,7 +487,14 @@ export default function ProcessoDetalhe() {
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
                         {aberto ? <ChevronDown size={15} aria-hidden="true" /> : <ChevronRight size={15} aria-hidden="true" />}
-                        <span style={{ fontWeight: 500, fontSize: 13 }}>{i.produto}</span>
+                        <span style={{ fontWeight: 500, fontSize: 13 }}>
+                          {i.produto}
+                          {(i.marca || i.modelo) && (
+                            <span className="text-muted" style={{ fontWeight: 400, fontSize: 12 }}>
+                              {' '}— {[i.marca, i.modelo].filter(Boolean).join(' / ')}
+                            </span>
+                          )}
+                        </span>
                         <div style={{ minWidth: 150, maxWidth: 200, flex: 1 }}>
                           <SaldoBar contratado={Number(i.quantidade_contratada)} usado={Number(i.quantidade_empenhada)} />
                         </div>
@@ -548,36 +646,138 @@ export default function ProcessoDetalhe() {
         </Modal>
       )}
 
-      {/* Modal: novo contrato */}
-      {modalContrato && (
+      {/* Modal: nova Ata ou novo Contrato */}
+      {modalAtaContrato && (
         <Modal
-          titulo="Novo contrato / ATA"
-          onClose={() => setModalContrato(false)}
+          largo
+          titulo={modalAtaContrato === 'ATA' ? 'Adicionar Ata' : 'Adicionar Contrato'}
+          onClose={() => { if (!salvandoAtaContrato) { setModalAtaContrato(null); setErro('') } }}
           footer={<>
-            <button className="btn btn-secondary" onClick={() => setModalContrato(false)}>Cancelar</button>
-            <button className="btn btn-primary" onClick={salvarContrato}>Salvar</button>
+            <button className="btn btn-secondary" onClick={() => { setModalAtaContrato(null); setErro('') }} disabled={salvandoAtaContrato}>Cancelar</button>
+            <button className="btn btn-primary" onClick={salvarAtaContrato} disabled={salvandoAtaContrato}>
+              {salvandoAtaContrato ? 'Salvando...' : 'Salvar'}
+            </button>
           </>}
         >
-          {erro && <div className="alert-banner danger">{erro}</div>}
-          <form onSubmit={salvarContrato} className="form-grid">
-            <div className="form-field">
-              <label>Número da ATA</label>
-              <input value={formContrato.numero_ata} onChange={e => setFormContrato({ ...formContrato, numero_ata: e.target.value })} placeholder="ATA-001/2026" />
+          {erro && (
+            <div className="alert-banner danger" style={{ marginBottom: 16 }}>
+              <ShieldAlert size={15} aria-hidden="true" style={{ flexShrink: 0, marginTop: 1 }} />
+              <span>{erro}</span>
             </div>
-            <div className="form-field">
-              <label>Tipo</label>
-              <select value={formContrato.tipo} onChange={e => setFormContrato({ ...formContrato, tipo: e.target.value })}>
-                <option value="ATA">ATA de registro de preços</option>
-                <option value="EMPENHO_DIRETO">Empenho direto</option>
-              </select>
+          )}
+
+          <form onSubmit={salvarAtaContrato}>
+            <div className="form-grid">
+              <div className="form-field">
+                <label>{modalAtaContrato === 'ATA' ? 'Nº da ata' : 'Nº do contrato'} *</label>
+                <input value={formContrato.numero_ata} onChange={e => setFormContrato({ ...formContrato, numero_ata: e.target.value })} required placeholder="Ex: 001/2026" />
+              </div>
+              <div className="form-field">
+                <label>Arquivo {modalAtaContrato === 'ATA' ? 'da ata' : 'do contrato'} (PDF)</label>
+                <input type="file" accept="application/pdf" onChange={e => setArquivoAtaContrato(e.target.files[0] || null)} />
+              </div>
+
+              <div className="form-field">
+                <label>Data de assinatura</label>
+                <input type="date" value={formContrato.data_assinatura} onChange={e => setFormContrato({ ...formContrato, data_assinatura: e.target.value })} />
+              </div>
+              <div className="form-field">
+                <label>Vigência início</label>
+                <input type="date" value={formContrato.data_inicio_vigencia} onChange={e => setFormContrato({ ...formContrato, data_inicio_vigencia: e.target.value })} />
+              </div>
+              <div className="form-field">
+                <label>Vigência (meses, a partir da assinatura)</label>
+                <input type="number" min={1} value={formContrato.vigencia_meses} onChange={e => setFormContrato({ ...formContrato, vigencia_meses: e.target.value })} />
+              </div>
+
+              <div className="form-field">
+                <label>Viabilidade</label>
+                <select value={formContrato.viabilidade} onChange={e => setFormContrato({ ...formContrato, viabilidade: e.target.value })}>
+                  <option value="">Selecione</option>
+                  <option value="ALTA">Alta</option>
+                  <option value="MEDIA">Média</option>
+                  <option value="BAIXA">Baixa</option>
+                </select>
+              </div>
+              <div className="form-field full">
+                <label>Observações</label>
+                <textarea rows={2} value={formContrato.observacoes} onChange={e => setFormContrato({ ...formContrato, observacoes: e.target.value })} placeholder={`Observações sobre ${modalAtaContrato === 'ATA' ? 'a ata' : 'o contrato'}...`} />
+              </div>
+
+              <div className="form-field">
+                <label>Prazo de entrega</label>
+                <input type="number" min={1} value={formContrato.prazo_entrega_dias} onChange={e => setFormContrato({ ...formContrato, prazo_entrega_dias: e.target.value })} placeholder="Ex: 15 dias" />
+                <label className="checkbox-inline">
+                  <input type="checkbox" checked={formContrato.prazo_entrega_uteis} onChange={e => setFormContrato({ ...formContrato, prazo_entrega_uteis: e.target.checked })} />
+                  Dias úteis
+                </label>
+              </div>
+              <div className="form-field">
+                <label>Prazo de pagamento</label>
+                <input type="number" min={1} value={formContrato.prazo_pagamento_dias} onChange={e => setFormContrato({ ...formContrato, prazo_pagamento_dias: e.target.value })} placeholder="Ex: 30 dias" />
+                <label className="checkbox-inline">
+                  <input type="checkbox" checked={formContrato.prazo_pagamento_uteis} onChange={e => setFormContrato({ ...formContrato, prazo_pagamento_uteis: e.target.checked })} />
+                  Dias úteis
+                </label>
+              </div>
+
+              <div className="form-field">
+                <label>Telefone de contato</label>
+                <input value={formContrato.telefone_contato} onChange={e => setFormContrato({ ...formContrato, telefone_contato: e.target.value })} placeholder="(00) 00000-0000" />
+              </div>
+              <div className="form-field">
+                <label>Email</label>
+                <input type="email" value={formContrato.email_contato} onChange={e => setFormContrato({ ...formContrato, email_contato: e.target.value })} placeholder="email@exemplo.com" />
+              </div>
             </div>
-            <div className="form-field">
-              <label>Data de assinatura</label>
-              <input type="date" value={formContrato.data_assinatura} onChange={e => setFormContrato({ ...formContrato, data_assinatura: e.target.value })} />
+
+            <div className="section-title" style={{ marginTop: 18 }}>Itens {modalAtaContrato === 'ATA' ? 'da ata' : 'do contrato'}</div>
+            <div className="itens-form-table-wrap">
+              <table className="itens-form-table">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Descrição</th>
+                    <th>Marca</th>
+                    <th>Modelo</th>
+                    <th className="col-unidade">Unidade</th>
+                    <th className="col-qtd">Qtd. total</th>
+                    <th className="col-valor">Valor unitário</th>
+                    <th className="col-valor">Valor total</th>
+                    <th className="col-acoes">Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {itensForm.map((l, idx) => {
+                    const totalLinha = (Number(l.quantidade_contratada) || 0) * (Number(l.valor_unitario) || 0)
+                    return (
+                      <tr key={l._key}>
+                        <td>{idx + 1}</td>
+                        <td><input value={l.produto_nome_livre} onChange={e => atualizarLinhaItem(l._key, 'produto_nome_livre', e.target.value)} placeholder="Descrição do item" /></td>
+                        <td><input value={l.marca} onChange={e => atualizarLinhaItem(l._key, 'marca', e.target.value)} placeholder="Marca" /></td>
+                        <td><input value={l.modelo} onChange={e => atualizarLinhaItem(l._key, 'modelo', e.target.value)} placeholder="Modelo" /></td>
+                        <td className="col-unidade"><input value={l.unidade} onChange={e => atualizarLinhaItem(l._key, 'unidade', e.target.value)} /></td>
+                        <td className="col-qtd"><input type="number" min={0} step="0.01" value={l.quantidade_contratada} onChange={e => atualizarLinhaItem(l._key, 'quantidade_contratada', e.target.value)} /></td>
+                        <td className="col-valor"><input type="number" min={0} step="0.01" value={l.valor_unitario} onChange={e => atualizarLinhaItem(l._key, 'valor_unitario', e.target.value)} /></td>
+                        <td className="col-total">{totalLinha.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                        <td className="col-acoes">
+                          <button type="button" className="itens-form-remover" onClick={() => removerLinhaItem(l._key)} aria-label="Remover item" title="Remover item">
+                            <Trash2 size={14} aria-hidden="true" />
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
-            <div className="form-field">
-              <label>Vigência (meses)</label>
-              <input type="number" min={1} value={formContrato.vigencia_meses} onChange={e => setFormContrato({ ...formContrato, vigencia_meses: e.target.value })} />
+            <div className="itens-form-rodape">
+              <button type="button" className="btn btn-secondary btn-sm" onClick={adicionarLinhaItem}>
+                <Plus size={13} aria-hidden="true" /> Adicionar item
+              </button>
+              <span className="itens-form-total">
+                Valor total {modalAtaContrato === 'ATA' ? 'da ata' : 'do contrato'}: {totalItensForm.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+              </span>
             </div>
           </form>
         </Modal>
