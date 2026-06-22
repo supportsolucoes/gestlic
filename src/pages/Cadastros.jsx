@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus, Pencil } from 'lucide-react'
+import { Plus, Pencil, Loader2, CheckCircle2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import Modal from '../components/Modal'
 import { useAuth } from '../context/AuthContext'
@@ -17,6 +17,8 @@ export default function Cadastros() {
   const [editandoOrgao, setEditandoOrgao] = useState(null)
   const [erro, setErro] = useState('')
   const [sucesso, setSucesso] = useState('')
+  const [buscandoCnpj, setBuscandoCnpj] = useState(false)
+  const [cnpjEncontrado, setCnpjEncontrado] = useState(false)
   const [formOrgao, setFormOrgao] = useState({ nome: '', uf: '', cnpj: '' })
   const [formProduto, setFormProduto] = useState({ nome: '', fornecedor_id: '', preco_custo: '' })
   const [formFornecedor, setFormFornecedor] = useState({ nome: '' })
@@ -41,6 +43,7 @@ export default function Cadastros() {
   function abrirNovoOrgao() {
     setEditandoOrgao(null)
     setFormOrgao({ nome: '', uf: '', cnpj: '' })
+    setCnpjEncontrado(false)
     setErro('')
     setModalAberto(true)
   }
@@ -48,6 +51,7 @@ export default function Cadastros() {
   function abrirEdicaoOrgao(o) {
     setEditandoOrgao(o)
     setFormOrgao({ nome: o.nome || '', uf: o.uf || '', cnpj: o.cnpj || '' })
+    setCnpjEncontrado(false)
     setErro('')
     setModalAberto(true)
   }
@@ -120,6 +124,36 @@ export default function Cadastros() {
       .replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3')
       .replace(/\.(\d{3})(\d)/, '.$1/$2')
       .replace(/(\d{4})(\d)/, '$1-$2')
+  }
+
+  async function aoMudarCnpjOrgao(valor) {
+    const formatado = formatarCnpj(valor)
+    setFormOrgao({ ...formOrgao, cnpj: formatado })
+    setCnpjEncontrado(false)
+    setErro('')
+
+    const digitos = formatado.replace(/\D/g, '')
+    if (digitos.length !== 14) return
+
+    setBuscandoCnpj(true)
+    try {
+      const resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${digitos}`)
+      if (resp.ok) {
+        const dados = await resp.json()
+        const nome = dados.razao_social || dados.nome_fantasia || ''
+        const uf = dados.uf || ''
+        setFormOrgao(prev => ({ ...prev, cnpj: formatado, nome, uf }))
+        setCnpjEncontrado(true)
+      } else if (resp.status === 404) {
+        setErro('CNPJ não encontrado na base da Receita Federal. Preencha o nome manualmente.')
+      } else {
+        setErro('Não foi possível consultar o CNPJ agora. Preencha o nome manualmente.')
+      }
+    } catch {
+      setErro('Sem conexão com o serviço de consulta. Preencha o nome manualmente.')
+    } finally {
+      setBuscandoCnpj(false)
+    }
   }
 
   function abrirModalNovo() {
@@ -252,16 +286,31 @@ export default function Cadastros() {
           {erro && <div className="alert-banner danger">{erro}</div>}
           <form onSubmit={salvarOrgao} className="form-grid">
             <div className="form-field full">
+              <label>CNPJ</label>
+              <input
+                value={formOrgao.cnpj}
+                onChange={e => aoMudarCnpjOrgao(e.target.value)}
+                maxLength={18}
+                placeholder="00.000.000/0000-00"
+              />
+              {buscandoCnpj && (
+                <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                  <Loader2 size={12} className="spin" aria-hidden="true" /> Consultando Receita Federal...
+                </span>
+              )}
+              {cnpjEncontrado && !buscandoCnpj && (
+                <span style={{ fontSize: 12, color: 'var(--ok)', display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                  <CheckCircle2 size={12} aria-hidden="true" /> Dados encontrados e preenchidos automaticamente
+                </span>
+              )}
+            </div>
+            <div className="form-field full">
               <label>Nome do órgão</label>
               <input value={formOrgao.nome} onChange={e => setFormOrgao({ ...formOrgao, nome: e.target.value })} required placeholder="Prefeitura Municipal de..." />
             </div>
             <div className="form-field">
               <label>UF</label>
               <input value={formOrgao.uf} onChange={e => setFormOrgao({ ...formOrgao, uf: e.target.value.toUpperCase() })} maxLength={2} placeholder="SP" />
-            </div>
-            <div className="form-field">
-              <label>CNPJ</label>
-              <input value={formOrgao.cnpj} onChange={e => setFormOrgao({ ...formOrgao, cnpj: formatarCnpj(e.target.value) })} maxLength={18} placeholder="00.000.000/0000-00" />
             </div>
           </form>
         </Modal>
