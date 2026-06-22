@@ -127,13 +127,25 @@ export default function Empenhos() {
                       {empsDoItem.length === 0 ? (
                         <span className="text-muted" style={{ fontSize: 12 }}>Nenhum ainda</span>
                       ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                           {empsDoItem.map(em => (
-                            <div key={em.empenho_id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <span className="mono" style={{ fontSize: 12 }}>{em.numero_empenho || 'NE'}</span>
-                              {em.entrega_atrasada && (
-                                <span className="badge badge-danger"><ShieldAlert size={11} aria-hidden="true" /> Entrega atrasada</span>
-                              )}
+                            <div key={em.empenho_id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <span className="mono" style={{ fontSize: 12, fontWeight: 600 }}>{em.numero_empenho || 'NE'}</span>
+                                  {em.entrega_atrasada && (
+                                    <span className="badge badge-danger"><ShieldAlert size={11} aria-hidden="true" /> Atrasada</span>
+                                  )}
+                                </div>
+                                <div style={{ minWidth: 150, marginTop: 3 }}>
+                                  <SaldoBar contratado={Number(em.quantidade_empenhada)} usado={Number(em.quantidade_entregue)} labelUsado="entregue" />
+                                </div>
+                                {em.data_limite_entrega && (
+                                  <div className="text-muted" style={{ fontSize: 11, marginTop: 2 }}>
+                                    Prazo: {new Date(em.data_limite_entrega).toLocaleDateString('pt-BR')}
+                                  </div>
+                                )}
+                              </div>
                               <button className="btn btn-secondary btn-sm" onClick={() => setModalEntrega(em.empenho_id)}>
                                 <Truck size={12} aria-hidden="true" /> Registrar entrega
                               </button>
