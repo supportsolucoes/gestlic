@@ -4,6 +4,7 @@ import Layout from './components/Layout'
 import Login from './pages/Login'
 import Painel from './pages/Painel'
 import Processos from './pages/Processos'
+import ProcessoDetalhe from './pages/ProcessoDetalhe'
 import Contratos from './pages/Contratos'
 import Empenhos from './pages/Empenhos'
 import Cadastros from './pages/Cadastros'
@@ -28,6 +29,7 @@ function Rotas() {
       <Route element={<Layout />}>
         <Route path="/" element={<Painel />} />
         <Route path="/processos" element={<Processos />} />
+        <Route path="/processos/:id" element={<ProcessoDetalhe />} />
         <Route path="/contratos" element={<Contratos />} />
         <Route path="/empenhos" element={<Empenhos />} />
         <Route path="/cadastros" element={ehAdmin ? <Cadastros /> : <Navigate to="/" replace />} />
