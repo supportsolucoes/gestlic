@@ -336,6 +336,22 @@ table { font-variant-numeric: tabular-nums; }
   box-shadow: 0 0 0 3px rgba(42, 77, 105, 0.12);
 }
 
+.form-field input[type="file"] {
+  padding: 7px 8px;
+  font-size: 12.5px;
+  background: var(--bg);
+}
+.form-field input[type="file"]::file-selector-button {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-right: 8px;
+  cursor: pointer;
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;
