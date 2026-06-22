@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
-import { Plus, ShieldAlert, Truck, MapPin, ChevronDown, ChevronRight, Paperclip, Upload, Trash2, FileText } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { ArrowUpRight, ShieldAlert, Truck, MapPin, ChevronDown, ChevronRight, Paperclip, Upload, Trash2, FileText } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import Modal from '../components/Modal'
 import SaldoBar from '../components/SaldoBar'
 import { useAuth } from '../context/AuthContext'
 
 export default function Empenhos() {
+  const navigate = useNavigate()
   const { ehAdmin } = useAuth()
   const [itens, setItens] = useState([])
   const [empenhos, setEmpenhos] = useState({})
@@ -13,19 +15,10 @@ export default function Empenhos() {
   const [carregando, setCarregando] = useState(true)
   const [itemExpandido, setItemExpandido] = useState(null)
   const [empenhoExpandido, setEmpenhoExpandido] = useState(null)
-  const [modalEmpenho, setModalEmpenho] = useState(null) // item_contrato_id
   const [modalEntrega, setModalEntrega] = useState(null) // empenho_id
   const [erro, setErro] = useState('')
   const [enviandoAnexo, setEnviandoAnexo] = useState(null) // empenho_id em upload
-  const [salvandoEmpenho, setSalvandoEmpenho] = useState(false)
-  const [arquivoNotaEmpenho, setArquivoNotaEmpenho] = useState(null)
-  const [arquivoNotaFiscal, setArquivoNotaFiscal] = useState(null)
 
-  const [formEmpenho, setFormEmpenho] = useState({
-    numero_empenho: '', data_emissao: hoje(), quantidade_empenhada: '',
-    local_entrega: '', endereco_entrega: '', cidade_entrega: '', uf_entrega: '',
-    responsavel_recebimento: '', telefone_entrega: '',
-  })
   const [formEntrega, setFormEntrega] = useState({ data_envio: hoje(), quantidade_entregue: '' })
 
   function hoje() { return new Date().toISOString().slice(0, 10) }
@@ -36,7 +29,7 @@ export default function Empenhos() {
     const { data: i } = await supabase.from('vw_saldo_itens').select('*')
     const { data: ic } = await supabase
       .from('itens_contrato')
-      .select('id, contrato_id, contratos(numero_ata, processos(orgaos(nome, logradouro, numero, bairro, cidade, uf, cep, telefone)))')
+      .select('id, contrato_id, contratos(numero_ata, processos(id, orgaos(nome, logradouro, numero, bairro, cidade, uf, cep, telefone)))')
 
     const contextoPorItem = {}
     ;(ic || []).forEach(c => { contextoPorItem[c.id] = c })
@@ -68,26 +61,6 @@ export default function Empenhos() {
 
   useEffect(() => { carregar() }, [])
 
-  function abrirModalEmpenho(item) {
-    const orgao = item.itens_contrato?.contratos?.processos?.orgaos
-    const enderecoSugerido = orgao
-      ? [orgao.logradouro, orgao.numero, orgao.bairro, orgao.cidade].filter(Boolean).join(', ')
-      : ''
-    setFormEmpenho({
-      numero_empenho: '', data_emissao: hoje(), quantidade_empenhada: '',
-      local_entrega: orgao?.nome || '',
-      endereco_entrega: enderecoSugerido,
-      cidade_entrega: orgao?.cidade || '',
-      uf_entrega: orgao?.uf || '',
-      responsavel_recebimento: '',
-      telefone_entrega: orgao?.telefone || '',
-    })
-    setArquivoNotaEmpenho(null)
-    setArquivoNotaFiscal(null)
-    setErro('')
-    setModalEmpenho(item.item_contrato_id)
-  }
-
   async function subirArquivoEmpenho(empenhoId, arquivo, tipoDocumento) {
     if (!arquivo) return { error: null }
     if (arquivo.type !== 'application/pdf') {
@@ -116,53 +89,6 @@ export default function Empenhos() {
       return { error: 'Falha ao salvar metadados de ' + arquivo.name + ': ' + erroMeta.message }
     }
     return { error: null }
-  }
-
-  async function salvarEmpenho(e) {
-    e.preventDefault()
-    setErro('')
-    setSalvandoEmpenho(true)
-
-    const { data: novoEmpenho, error } = await supabase.from('empenhos').insert({
-      item_contrato_id: modalEmpenho,
-      numero_empenho: formEmpenho.numero_empenho,
-      data_emissao: formEmpenho.data_emissao,
-      quantidade_empenhada: Number(formEmpenho.quantidade_empenhada),
-      local_entrega: formEmpenho.local_entrega || null,
-      endereco_entrega: formEmpenho.endereco_entrega || null,
-      cidade_entrega: formEmpenho.cidade_entrega || null,
-      uf_entrega: formEmpenho.uf_entrega || null,
-      responsavel_recebimento: formEmpenho.responsavel_recebimento || null,
-      telefone_entrega: formEmpenho.telefone_entrega || null,
-    }).select('id').single()
-
-    if (error) {
-      setErro(limparMensagemBloqueio(error.message))
-      setSalvandoEmpenho(false)
-      return
-    }
-
-    // Empenho criado com sucesso — agora sobe os arquivos, se houver.
-    // Se algum upload falhar, o empenho já existe; avisamos mas não desfazemos o lançamento.
-    const erros = []
-    if (arquivoNotaEmpenho) {
-      const r = await subirArquivoEmpenho(novoEmpenho.id, arquivoNotaEmpenho, 'nota_empenho')
-      if (r.error) erros.push(r.error)
-    }
-    if (arquivoNotaFiscal) {
-      const r = await subirArquivoEmpenho(novoEmpenho.id, arquivoNotaFiscal, 'nota_fiscal')
-      if (r.error) erros.push(r.error)
-    }
-
-    setSalvandoEmpenho(false)
-    if (erros.length > 0) {
-      setErro('Empenho lançado, mas houve problema com anexos: ' + erros.join(' '))
-      carregar()
-      return
-    }
-
-    setModalEmpenho(null)
-    carregar()
   }
 
   async function salvarEntrega(e) {
@@ -218,8 +144,8 @@ export default function Empenhos() {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">Empenhos</h1>
-          <p className="page-subtitle">Lance empenhos por item de contrato. Tentativas acima do saldo são bloqueadas automaticamente.</p>
+          <h1 className="page-title">Relatório de empenhos</h1>
+          <p className="page-subtitle">Visão consolidada de todos os empenhos. Para lançar um novo, abra o processo correspondente.</p>
         </div>
       </div>
 
@@ -229,13 +155,14 @@ export default function Empenhos() {
         ) : itens.length === 0 ? (
           <div className="empty-state">
             <h4>Nenhum item de contrato cadastrado</h4>
-            <p>Cadastre um contrato e seus itens na página "Contratos / ATA" antes de lançar empenhos.</p>
+            <p>Cadastre um contrato e seus itens dentro de um processo antes de lançar empenhos.</p>
           </div>
         ) : (
           itens.map(i => {
             const empsDoItem = empenhos[i.item_contrato_id] || []
             const aberto = itemExpandido === i.item_contrato_id
             const algumAtrasado = empsDoItem.some(em => em.entrega_atrasada)
+            const processoId = i.itens_contrato?.contratos?.processos?.id
             return (
               <div key={i.item_contrato_id} style={{ borderBottom: '1px solid var(--border)' }}>
                 <div
@@ -257,9 +184,11 @@ export default function Empenhos() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <span className="badge badge-neutral">{empsDoItem.length} {empsDoItem.length === 1 ? 'empenho' : 'empenhos'}</span>
                     {algumAtrasado && <span className="badge badge-danger"><ShieldAlert size={11} aria-hidden="true" /> Atrasado</span>}
-                    <button className="btn btn-primary btn-sm" onClick={(e) => { e.stopPropagation(); abrirModalEmpenho(i) }}>
-                      <Plus size={13} aria-hidden="true" /> Empenho
-                    </button>
+                    {processoId && (
+                      <button className="btn btn-secondary btn-sm" onClick={(e) => { e.stopPropagation(); navigate(`/processos/${processoId}`) }}>
+                        Abrir processo <ArrowUpRight size={12} aria-hidden="true" />
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -375,100 +304,6 @@ export default function Empenhos() {
           })
         )}
       </div>
-
-      {modalEmpenho && (
-        <Modal
-          titulo="Lançar empenho"
-          onClose={() => { setModalEmpenho(null); setErro('') }}
-          footer={
-            <>
-              <button className="btn btn-secondary" onClick={() => { setModalEmpenho(null); setErro('') }} disabled={salvandoEmpenho}>Cancelar</button>
-              <button className="btn btn-primary" onClick={salvarEmpenho} disabled={salvandoEmpenho}>
-                {salvandoEmpenho ? 'Lançando...' : 'Lançar empenho'}
-              </button>
-            </>
-          }
-        >
-          {erro && (
-            <div className="alert-banner danger">
-              <ShieldAlert size={15} aria-hidden="true" style={{ flexShrink: 0, marginTop: 1 }} />
-              <span>{erro}</span>
-            </div>
-          )}
-          <form onSubmit={salvarEmpenho} className="form-grid">
-            <div className="form-field">
-              <label>Número do empenho (NE)</label>
-              <input value={formEmpenho.numero_empenho} onChange={e => setFormEmpenho({ ...formEmpenho, numero_empenho: e.target.value })} placeholder="NE-2026-001" />
-            </div>
-            <div className="form-field">
-              <label>Data de emissão</label>
-              <input type="date" value={formEmpenho.data_emissao} onChange={e => setFormEmpenho({ ...formEmpenho, data_emissao: e.target.value })} required />
-            </div>
-            <div className="form-field full">
-              <label>Quantidade empenhada</label>
-              <input type="number" min={0.01} step="0.01" value={formEmpenho.quantidade_empenhada} onChange={e => setFormEmpenho({ ...formEmpenho, quantidade_empenhada: e.target.value })} required />
-            </div>
-
-            <div className="form-field full" style={{ borderTop: '1px solid var(--border)', paddingTop: 14, marginTop: 4 }}>
-              <label style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Documentos (PDF, opcional)</label>
-            </div>
-            <div className="form-field">
-              <label>Nota de empenho</label>
-              <input
-                type="file"
-                accept="application/pdf"
-                onChange={e => setArquivoNotaEmpenho(e.target.files[0] || null)}
-              />
-              {arquivoNotaEmpenho && (
-                <span className="text-muted" style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <FileText size={11} aria-hidden="true" /> {arquivoNotaEmpenho.name}
-                </span>
-              )}
-            </div>
-            <div className="form-field">
-              <label>Nota fiscal</label>
-              <input
-                type="file"
-                accept="application/pdf"
-                onChange={e => setArquivoNotaFiscal(e.target.files[0] || null)}
-              />
-              {arquivoNotaFiscal && (
-                <span className="text-muted" style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <FileText size={11} aria-hidden="true" /> {arquivoNotaFiscal.name}
-                </span>
-              )}
-            </div>
-
-            <div className="form-field full" style={{ borderTop: '1px solid var(--border)', paddingTop: 14, marginTop: 4 }}>
-              <label style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Local de entrega</label>
-            </div>
-            <div className="form-field full">
-              <label>Local / unidade de destino</label>
-              <input value={formEmpenho.local_entrega} onChange={e => setFormEmpenho({ ...formEmpenho, local_entrega: e.target.value })} placeholder="Ex: Hospital Municipal, Almoxarifado Central" />
-            </div>
-            <div className="form-field full">
-              <label>Endereço</label>
-              <input value={formEmpenho.endereco_entrega} onChange={e => setFormEmpenho({ ...formEmpenho, endereco_entrega: e.target.value })} placeholder="Rua, número, bairro" />
-            </div>
-            <div className="form-field">
-              <label>Cidade</label>
-              <input value={formEmpenho.cidade_entrega} onChange={e => setFormEmpenho({ ...formEmpenho, cidade_entrega: e.target.value })} />
-            </div>
-            <div className="form-field">
-              <label>UF</label>
-              <input value={formEmpenho.uf_entrega} onChange={e => setFormEmpenho({ ...formEmpenho, uf_entrega: e.target.value.toUpperCase() })} maxLength={2} />
-            </div>
-            <div className="form-field">
-              <label>Responsável pelo recebimento</label>
-              <input value={formEmpenho.responsavel_recebimento} onChange={e => setFormEmpenho({ ...formEmpenho, responsavel_recebimento: e.target.value })} placeholder="Nome de quem recebe" />
-            </div>
-            <div className="form-field">
-              <label>Telefone de contato</label>
-              <input value={formEmpenho.telefone_entrega} onChange={e => setFormEmpenho({ ...formEmpenho, telefone_entrega: e.target.value })} placeholder="(00) 0000-0000" />
-            </div>
-          </form>
-        </Modal>
-      )}
 
       {modalEntrega && (
         <Modal
