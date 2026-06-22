@@ -65,3 +65,7 @@ update perfis set papel = 'admin' where nome = 'Nome do usuário';
 - Migrar a tela de "Produto do contrato" para usar o cadastro de produtos (hoje aceita texto livre — comece a vincular ao cadastro central conforme for usando).
 - Avaliar se quer notificação por e-mail nos alertas de vencimento/atraso (hoje eles só aparecem no Painel quando alguém abre o sistema).
 - As planilhas antigas (Empenhos.xlsx e RESULTADOS_2026) ficam como histórico de referência — não foram migradas, por decisão consciente dado que continham dados incompletos.
+
+## Pendências conhecidas (não prioritárias por enquanto)
+
+- **Troca de senha pelo próprio usuário**: hoje só o admin define/redefine senha (via "Cadastros → Usuários" → editar). Não existe tela de "Minha conta" nem "Esqueci minha senha". Construir quando fizer sentido.
