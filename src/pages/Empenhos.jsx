@@ -19,15 +19,20 @@ export default function Empenhos() {
 
   async function carregar() {
     setCarregando(true)
-    const { data: i } = await supabase
-      .from('vw_saldo_itens')
-      .select('*, itens_contrato(contrato_id, contratos(numero_ata, processos(orgaos(nome))))')
-    setItens(i || [])
 
-    const { data: e } = await supabase
-      .from('empenhos')
-      .select('*, vw_saldo_empenhos(*)')
-      .order('data_emissao', { ascending: false })
+    const { data: i } = await supabase.from('vw_saldo_itens').select('*')
+    const { data: ic } = await supabase
+      .from('itens_contrato')
+      .select('id, contrato_id, contratos(numero_ata, processos(orgaos(nome)))')
+
+    const contextoPorItem = {}
+    ;(ic || []).forEach(c => { contextoPorItem[c.id] = c })
+
+    const itensComContexto = (i || []).map(item => ({
+      ...item,
+      itens_contrato: contextoPorItem[item.item_contrato_id] || null,
+    }))
+    setItens(itensComContexto)
 
     const { data: saldoEmp } = await supabase.from('vw_saldo_empenhos').select('*')
     const agrupado = {}
