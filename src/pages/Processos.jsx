@@ -1,11 +1,20 @@
 import { useEffect, useState } from 'react'
-import { Pencil, Plus } from 'lucide-react'
+import { Pencil, Plus, Search } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import StatusBadge from '../components/StatusBadge'
 import Modal from '../components/Modal'
 import { useAuth } from '../context/AuthContext'
 
 const STATUS_OPCOES = ['EM_ANDAMENTO', 'GANHOU', 'DECLINOU', 'DESCLASSIFICADO', 'FRACASSADO', 'REVOGADO']
+
+function formatarCnpj(valor) {
+  const digitos = valor.replace(/\D/g, '').slice(0, 14)
+  return digitos
+    .replace(/^(\d{2})(\d)/, '$1.$2')
+    .replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3')
+    .replace(/\.(\d{3})(\d)/, '.$1/$2')
+    .replace(/(\d{4})(\d)/, '$1-$2')
+}
 
 export default function Processos() {
   const { ehAdmin } = useAuth()
@@ -16,11 +25,12 @@ export default function Processos() {
   const [modalAberto, setModalAberto] = useState(false)
   const [editando, setEditando] = useState(null)
   const [erro, setErro] = useState('')
+  const [orgaoEncontrado, setOrgaoEncontrado] = useState(false)
   const [form, setForm] = useState(formVazio())
 
   function formVazio() {
     return {
-      orgao_nome: '', uf: '', numero_pregao: '', numero_processo: '',
+      cnpj: '', orgao_nome: '', uf: '', numero_pregao: '', numero_processo: '',
       modalidade: 'ELETRÔNICO', data_abertura: '', status: 'EM_ANDAMENTO',
       empresa_vencedora: '', motivo_perda: '', observacoes: '',
     }
@@ -33,7 +43,7 @@ export default function Processos() {
       .select('*, orgaos(nome, uf)')
       .order('created_at', { ascending: false })
     setProcessos(data || [])
-    const { data: org } = await supabase.from('orgaos').select('id, nome, uf').order('nome')
+    const { data: org } = await supabase.from('orgaos').select('id, nome, uf, cnpj').order('nome')
     setOrgaos(org || [])
     setCarregando(false)
   }
@@ -43,6 +53,7 @@ export default function Processos() {
   function abrirNovo() {
     setEditando(null)
     setForm(formVazio())
+    setOrgaoEncontrado(false)
     setErro('')
     setModalAberto(true)
   }
@@ -50,6 +61,7 @@ export default function Processos() {
   function abrirEdicao(p) {
     setEditando(p)
     setForm({
+      cnpj: p.orgaos?.cnpj || '',
       orgao_nome: p.orgaos?.nome || '',
       uf: p.orgaos?.uf || '',
       numero_pregao: p.numero_pregao || '',
@@ -61,8 +73,21 @@ export default function Processos() {
       motivo_perda: p.motivo_perda || '',
       observacoes: p.observacoes || '',
     })
+    setOrgaoEncontrado(!!p.orgaos?.cnpj)
     setErro('')
     setModalAberto(true)
+  }
+
+  function aoMudarCnpj(valor) {
+    const formatado = formatarCnpj(valor)
+    const encontrado = orgaos.find(o => o.cnpj === formatado)
+    if (encontrado) {
+      setForm({ ...form, cnpj: formatado, orgao_nome: encontrado.nome, uf: encontrado.uf || '' })
+      setOrgaoEncontrado(true)
+    } else {
+      setForm({ ...form, cnpj: formatado })
+      setOrgaoEncontrado(false)
+    }
   }
 
   async function salvar(e) {
@@ -70,14 +95,26 @@ export default function Processos() {
     setErro('')
 
     let orgaoId
-    const { data: orgaoExistente } = await supabase
-      .from('orgaos').select('id').eq('nome', form.orgao_nome).eq('uf', form.uf).maybeSingle()
+    let orgaoExistente = null
+
+    if (form.cnpj) {
+      const { data } = await supabase.from('orgaos').select('id').eq('cnpj', form.cnpj).maybeSingle()
+      orgaoExistente = data
+    }
+    if (!orgaoExistente) {
+      const { data } = await supabase
+        .from('orgaos').select('id').eq('nome', form.orgao_nome).eq('uf', form.uf).maybeSingle()
+      orgaoExistente = data
+    }
 
     if (orgaoExistente) {
       orgaoId = orgaoExistente.id
+      if (form.cnpj) {
+        await supabase.from('orgaos').update({ cnpj: form.cnpj }).eq('id', orgaoId).is('cnpj', null)
+      }
     } else {
       const { data: novoOrgao, error: erroOrgao } = await supabase
-        .from('orgaos').insert({ nome: form.orgao_nome, uf: form.uf }).select('id').single()
+        .from('orgaos').insert({ nome: form.orgao_nome, uf: form.uf, cnpj: form.cnpj || null }).select('id').single()
       if (erroOrgao) { setErro(erroOrgao.message); return }
       orgaoId = novoOrgao.id
     }
@@ -188,13 +225,48 @@ export default function Processos() {
         >
           {erro && <div className="alert-banner danger">{erro}</div>}
           <form onSubmit={salvar} className="form-grid">
+            <div className="form-field full">
+              <label>CNPJ do órgão</label>
+              <input
+                value={form.cnpj}
+                onChange={e => aoMudarCnpj(e.target.value)}
+                maxLength={18}
+                placeholder="00.000.000/0000-00"
+              />
+              {orgaoEncontrado && (
+                <span style={{ fontSize: 12, color: 'var(--ok)', display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
+                  <Search size={12} aria-hidden="true" /> Órgão encontrado no cadastro — nome e UF preenchidos
+                  <button
+                    type="button"
+                    onClick={() => setOrgaoEncontrado(false)}
+                    style={{ background: 'none', border: 'none', color: 'var(--accent)', fontWeight: 600, fontSize: 12, padding: 0 }}
+                  >
+                    Editar mesmo assim
+                  </button>
+                </span>
+              )}
+            </div>
             <div className="form-field">
               <label>Órgão</label>
-              <input value={form.orgao_nome} onChange={e => setForm({ ...form, orgao_nome: e.target.value })} required placeholder="Prefeitura Municipal de..." />
+              <input
+                value={form.orgao_nome}
+                onChange={e => setForm({ ...form, orgao_nome: e.target.value })}
+                required
+                readOnly={orgaoEncontrado}
+                placeholder="Prefeitura Municipal de..."
+                style={orgaoEncontrado ? { background: 'var(--bg)', color: 'var(--text-muted)' } : undefined}
+              />
             </div>
             <div className="form-field">
               <label>UF</label>
-              <input value={form.uf} onChange={e => setForm({ ...form, uf: e.target.value.toUpperCase() })} maxLength={2} placeholder="SP" />
+              <input
+                value={form.uf}
+                onChange={e => setForm({ ...form, uf: e.target.value.toUpperCase() })}
+                maxLength={2}
+                readOnly={orgaoEncontrado}
+                placeholder="SP"
+                style={orgaoEncontrado ? { background: 'var(--bg)', color: 'var(--text-muted)' } : undefined}
+              />
             </div>
             <div className="form-field">
               <label>Nº do pregão</label>
