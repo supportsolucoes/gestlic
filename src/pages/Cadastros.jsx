@@ -19,7 +19,12 @@ export default function Cadastros() {
   const [sucesso, setSucesso] = useState('')
   const [buscandoCnpj, setBuscandoCnpj] = useState(false)
   const [cnpjEncontrado, setCnpjEncontrado] = useState(false)
-  const [formOrgao, setFormOrgao] = useState({ nome: '', razao_social: '', uf: '', cnpj: '', logradouro: '', numero: '', bairro: '', cidade: '', cep: '', telefone: '' })
+  const [formOrgao, setFormOrgao] = useState({
+    nome: '', razao_social: '', uf: '', cnpj: '',
+    logradouro: '', numero: '', bairro: '', cidade: '', cep: '', telefone: '',
+    situacao_cadastral: '', data_abertura: '', natureza_juridica: '', porte: '', atividade_principal: '', email: '',
+    dados_receita: null, data_consulta_receita: null,
+  })
   const [formProduto, setFormProduto] = useState({ nome: '', fornecedor_id: '', preco_custo: '' })
   const [formFornecedor, setFormFornecedor] = useState({ nome: '' })
   const [formUsuario, setFormUsuario] = useState({ nome: '', email: '', senha: '', papel: 'operador' })
@@ -40,9 +45,18 @@ export default function Cadastros() {
 
   useEffect(() => { carregar() }, [])
 
+  function formVazioOrgao() {
+    return {
+      nome: '', razao_social: '', uf: '', cnpj: '',
+      logradouro: '', numero: '', bairro: '', cidade: '', cep: '', telefone: '',
+      situacao_cadastral: '', data_abertura: '', natureza_juridica: '', porte: '', atividade_principal: '', email: '',
+      dados_receita: null, data_consulta_receita: null,
+    }
+  }
+
   function abrirNovoOrgao() {
     setEditandoOrgao(null)
-    setFormOrgao({ nome: '', razao_social: '', uf: '', cnpj: '', logradouro: '', numero: '', bairro: '', cidade: '', cep: '', telefone: '' })
+    setFormOrgao(formVazioOrgao())
     setCnpjEncontrado(false)
     setErro('')
     setModalAberto(true)
@@ -54,6 +68,10 @@ export default function Cadastros() {
       nome: o.nome || '', razao_social: o.razao_social || '', uf: o.uf || '', cnpj: o.cnpj || '',
       logradouro: o.logradouro || '', numero: o.numero || '', bairro: o.bairro || '',
       cidade: o.cidade || '', cep: o.cep || '', telefone: o.telefone || '',
+      situacao_cadastral: o.situacao_cadastral || '', data_abertura: o.data_abertura || '',
+      natureza_juridica: o.natureza_juridica || '', porte: o.porte || '',
+      atividade_principal: o.atividade_principal || '', email: o.email || '',
+      dados_receita: o.dados_receita || null, data_consulta_receita: o.data_consulta_receita || null,
     })
     setCnpjEncontrado(false)
     setErro('')
@@ -74,6 +92,14 @@ export default function Cadastros() {
       cidade: formOrgao.cidade || null,
       cep: formOrgao.cep || null,
       telefone: formOrgao.telefone || null,
+      situacao_cadastral: formOrgao.situacao_cadastral || null,
+      data_abertura: formOrgao.data_abertura || null,
+      natureza_juridica: formOrgao.natureza_juridica || null,
+      porte: formOrgao.porte || null,
+      atividade_principal: formOrgao.atividade_principal || null,
+      email: formOrgao.email || null,
+      dados_receita: formOrgao.dados_receita || null,
+      data_consulta_receita: formOrgao.data_consulta_receita || null,
     }
     const { error } = editandoOrgao
       ? await supabase.from('orgaos').update(payload).eq('id', editandoOrgao.id)
@@ -168,6 +194,14 @@ export default function Cadastros() {
           cidade: dados.municipio || '',
           cep: dados.cep || '',
           telefone: dados.ddd_telefone_1 || '',
+          situacao_cadastral: dados.descricao_situacao_cadastral || '',
+          data_abertura: dados.data_inicio_atividade || '',
+          natureza_juridica: dados.natureza_juridica || '',
+          porte: dados.descricao_porte || '',
+          atividade_principal: dados.cnae_fiscal_descricao || '',
+          email: dados.email || '',
+          dados_receita: dados,
+          data_consulta_receita: new Date().toISOString(),
         }))
         setCnpjEncontrado(true)
       } else if (resp.status === 404) {
@@ -334,6 +368,14 @@ export default function Cadastros() {
               <div className="form-field full">
                 <label>Razão social (Receita Federal)</label>
                 <input value={formOrgao.razao_social} readOnly style={{ background: 'var(--bg)', color: 'var(--text-muted)' }} />
+                {formOrgao.situacao_cadastral && (
+                  <span
+                    className={`badge ${formOrgao.situacao_cadastral.toUpperCase() === 'ATIVA' ? 'badge-ok' : 'badge-danger'}`}
+                    style={{ marginTop: 6, width: 'fit-content' }}
+                  >
+                    {formOrgao.situacao_cadastral}
+                  </span>
+                )}
               </div>
             )}
             <div className="form-field full">
@@ -344,6 +386,12 @@ export default function Cadastros() {
               <label>UF</label>
               <input value={formOrgao.uf} onChange={e => setFormOrgao({ ...formOrgao, uf: e.target.value.toUpperCase() })} maxLength={2} placeholder="SP" />
             </div>
+            {formOrgao.natureza_juridica && (
+              <div className="form-field">
+                <label>Natureza jurídica</label>
+                <input value={formOrgao.natureza_juridica} readOnly style={{ background: 'var(--bg)', color: 'var(--text-muted)' }} />
+              </div>
+            )}
             <div className="form-field full">
               <label>Endereço da sede (referência, pode ser ajustado por entrega)</label>
               <input
