@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Pencil, Plus, Search } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import StatusBadge from '../components/StatusBadge'
@@ -17,6 +18,7 @@ function formatarCnpj(valor) {
 }
 
 export default function Processos() {
+  const navigate = useNavigate()
   const { ehAdmin } = useAuth()
   const [processos, setProcessos] = useState([])
   const [orgaos, setOrgaos] = useState([])
@@ -190,7 +192,7 @@ export default function Processos() {
             </thead>
             <tbody>
               {listaFiltrada.map(p => (
-                <tr key={p.id}>
+                <tr key={p.id} onClick={() => navigate(`/processos/${p.id}`)} style={{ cursor: 'pointer' }}>
                   <td>{p.orgaos?.nome}</td>
                   <td>{p.orgaos?.uf}</td>
                   <td className="mono">{p.numero_pregao}</td>
@@ -200,7 +202,7 @@ export default function Processos() {
                   <td>{p.empresa_vencedora || '—'}</td>
                   <td>
                     {ehAdmin && (
-                      <button className="icon-btn" onClick={() => abrirEdicao(p)} aria-label="Editar processo" title="Editar">
+                      <button className="icon-btn" onClick={(e) => { e.stopPropagation(); abrirEdicao(p) }} aria-label="Editar processo" title="Editar">
                         <Pencil size={14} aria-hidden="true" />
                       </button>
                     )}
