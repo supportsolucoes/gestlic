@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus, Pencil, Loader2, CheckCircle2 } from 'lucide-react'
+import { Plus, Pencil, Loader2, CheckCircle2, FileText, Building2, Calendar, Mail, Phone, MapPin } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import Modal from '../components/Modal'
 import { useAuth } from '../context/AuthContext'
@@ -14,6 +14,7 @@ export default function Cadastros() {
   const [fornecedores, setFornecedores] = useState([])
   const [perfis, setPerfis] = useState([])
   const [modalAberto, setModalAberto] = useState(false)
+  const [modalDadosCompletos, setModalDadosCompletos] = useState(null) // órgão selecionado
   const [editandoOrgao, setEditandoOrgao] = useState(null)
   const [erro, setErro] = useState('')
   const [sucesso, setSucesso] = useState('')
@@ -271,7 +272,12 @@ export default function Cadastros() {
                     <td>{o.uf || '—'}</td>
                     <td className="mono">{o.cnpj || '—'}</td>
                     <td>{o.processos?.length || 0}</td>
-                    <td>
+                    <td style={{ display: 'flex', gap: 4 }}>
+                      {o.dados_receita && (
+                        <button className="icon-btn" onClick={() => setModalDadosCompletos(o)} aria-label="Ver dados completos" title="Ver dados completos">
+                          <FileText size={14} aria-hidden="true" />
+                        </button>
+                      )}
                       <button className="icon-btn" onClick={() => abrirEdicaoOrgao(o)} aria-label="Editar órgão" title="Editar">
                         <Pencil size={14} aria-hidden="true" />
                       </button>
@@ -493,6 +499,91 @@ export default function Cadastros() {
               </div>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {modalDadosCompletos && (
+        <Modal
+          titulo="Dados completos da Receita Federal"
+          onClose={() => setModalDadosCompletos(null)}
+          footer={<button className="btn btn-secondary" onClick={() => setModalDadosCompletos(null)}>Fechar</button>}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>{modalDadosCompletos.razao_social || modalDadosCompletos.nome}</div>
+              <div className="text-muted mono" style={{ fontSize: 13, marginTop: 2 }}>{modalDadosCompletos.cnpj}</div>
+              {modalDadosCompletos.situacao_cadastral && (
+                <span
+                  className={`badge ${modalDadosCompletos.situacao_cadastral.toUpperCase() === 'ATIVA' ? 'badge-ok' : 'badge-danger'}`}
+                  style={{ marginTop: 8 }}
+                >
+                  {modalDadosCompletos.situacao_cadastral}
+                </span>
+              )}
+            </div>
+
+            <div className="section-title" style={{ margin: 0 }}>Identificação</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 13 }}>
+              <div>
+                <div className="text-muted" style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Building2 size={11} aria-hidden="true" /> Natureza jurídica
+                </div>
+                <div>{modalDadosCompletos.natureza_juridica || '—'}</div>
+              </div>
+              <div>
+                <div className="text-muted" style={{ fontSize: 11 }}>Porte</div>
+                <div>{modalDadosCompletos.porte || '—'}</div>
+              </div>
+              <div>
+                <div className="text-muted" style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Calendar size={11} aria-hidden="true" /> Data de abertura
+                </div>
+                <div>{modalDadosCompletos.data_abertura ? new Date(modalDadosCompletos.data_abertura).toLocaleDateString('pt-BR') : '—'}</div>
+              </div>
+              <div>
+                <div className="text-muted" style={{ fontSize: 11 }}>Nome de uso no sistema</div>
+                <div>{modalDadosCompletos.nome || '—'}</div>
+              </div>
+            </div>
+
+            <div className="section-title" style={{ margin: 0 }}>Atividade</div>
+            <div style={{ fontSize: 13 }}>{modalDadosCompletos.atividade_principal || '—'}</div>
+
+            <div className="section-title" style={{ margin: 0 }}>Contato</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 13 }}>
+              <div>
+                <div className="text-muted" style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Phone size={11} aria-hidden="true" /> Telefone
+                </div>
+                <div>{modalDadosCompletos.telefone || '—'}</div>
+              </div>
+              <div>
+                <div className="text-muted" style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Mail size={11} aria-hidden="true" /> E-mail
+                </div>
+                <div>{modalDadosCompletos.email || '—'}</div>
+              </div>
+            </div>
+
+            <div className="section-title" style={{ margin: 0 }}>Endereço da sede</div>
+            <div style={{ fontSize: 13, display: 'flex', alignItems: 'flex-start', gap: 4 }}>
+              <MapPin size={13} aria-hidden="true" style={{ marginTop: 2, flexShrink: 0 }} />
+              <span>
+                {[
+                  [modalDadosCompletos.logradouro, modalDadosCompletos.numero].filter(Boolean).join(', '),
+                  modalDadosCompletos.bairro,
+                  modalDadosCompletos.cidade && modalDadosCompletos.uf ? `${modalDadosCompletos.cidade} - ${modalDadosCompletos.uf}` : modalDadosCompletos.cidade,
+                  modalDadosCompletos.cep,
+                ].filter(Boolean).join(' · ') || '—'}
+              </span>
+            </div>
+
+            {modalDadosCompletos.data_consulta_receita && (
+              <div className="text-muted" style={{ fontSize: 11, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+                Consultado em {new Date(modalDadosCompletos.data_consulta_receita).toLocaleString('pt-BR')}
+              </div>
+            )}
+          </div>
         </Modal>
       )}
     </div>
