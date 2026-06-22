@@ -41,13 +41,26 @@ export function AuthProvider({ children }) {
     return { error }
   }
 
-  async function cadastrar(email, senha, nome) {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password: senha,
-      options: { data: { nome } },
-    })
-    return { error }
+  async function criarUsuario(email, senha, nome, papel) {
+    const { data: sessionData } = await supabase.auth.getSession()
+    const token = sessionData?.session?.access_token
+    if (!token) return { error: 'Sessão expirada, entre novamente.' }
+
+    try {
+      const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/criar-usuario`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ email, senha, nome, papel }),
+      })
+      const json = await resp.json()
+      if (!resp.ok) return { error: json.error || 'Erro ao criar usuário' }
+      return { error: null }
+    } catch (e) {
+      return { error: String(e) }
+    }
   }
 
   async function sair() {
@@ -57,7 +70,7 @@ export function AuthProvider({ children }) {
   const ehAdmin = perfil?.papel === 'admin'
 
   return (
-    <AuthContext.Provider value={{ session, perfil, carregando, ehAdmin, entrar, cadastrar, sair }}>
+    <AuthContext.Provider value={{ session, perfil, carregando, ehAdmin, entrar, criarUsuario, sair }}>
       {children}
     </AuthContext.Provider>
   )
