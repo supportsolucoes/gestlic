@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Pencil, Plus, Search } from 'lucide-react'
+import { Pencil, Plus, Search, List, LayoutGrid } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import StatusBadge from '../components/StatusBadge'
 import Modal from '../components/Modal'
+import KanbanProcessos from '../components/KanbanProcessos'
 import { useAuth } from '../context/AuthContext'
 
 const STATUS_OPCOES = ['EM_ANDAMENTO', 'GANHOU', 'DECLINOU', 'DESCLASSIFICADO', 'FRACASSADO', 'REVOGADO']
@@ -24,6 +25,7 @@ export default function Processos() {
   const [orgaos, setOrgaos] = useState([])
   const [carregando, setCarregando] = useState(true)
   const [filtroStatus, setFiltroStatus] = useState('TODOS')
+  const [visualizacao, setVisualizacao] = useState('lista') // 'lista' | 'kanban'
   const [modalAberto, setModalAberto] = useState(false)
   const [editando, setEditando] = useState(null)
   const [erro, setErro] = useState('')
@@ -154,65 +156,103 @@ export default function Processos() {
           <h1 className="page-title">Processos</h1>
           <p className="page-subtitle">Disputas de licitação — cadastre desde a abertura do edital.</p>
         </div>
-        {ehAdmin && <button className="btn btn-primary" onClick={abrirNovo}><Plus size={15} aria-hidden="true" /> Novo processo</button>}
-      </div>
-
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        {['TODOS', ...STATUS_OPCOES].map(s => (
-          <button
-            key={s}
-            onClick={() => setFiltroStatus(s)}
-            className="btn btn-sm"
-            style={{
-              background: filtroStatus === s ? 'var(--accent)' : 'var(--bg-elevated)',
-              color: filtroStatus === s ? '#fff' : 'var(--text)',
-              borderColor: 'var(--border)',
-            }}
-          >
-            {s === 'TODOS' ? 'Todos' : s.replace('_', ' ')}
-          </button>
-        ))}
-      </div>
-
-      <div className="table-wrap">
-        {carregando ? (
-          <div className="empty-state">Carregando...</div>
-        ) : listaFiltrada.length === 0 ? (
-          <div className="empty-state">
-            <h4>Nenhum processo encontrado</h4>
-            <p>Cadastre o primeiro processo para começar a acompanhar.</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+            <button
+              onClick={() => setVisualizacao('lista')}
+              aria-label="Visualização em lista"
+              title="Lista"
+              style={{
+                background: visualizacao === 'lista' ? 'var(--accent)' : 'var(--bg-elevated)',
+                color: visualizacao === 'lista' ? '#fff' : 'var(--text-muted)',
+                border: 'none', padding: '7px 10px', display: 'flex', alignItems: 'center',
+              }}
+            >
+              <List size={15} aria-hidden="true" />
+            </button>
+            <button
+              onClick={() => setVisualizacao('kanban')}
+              aria-label="Visualização em kanban"
+              title="Kanban"
+              style={{
+                background: visualizacao === 'kanban' ? 'var(--accent)' : 'var(--bg-elevated)',
+                color: visualizacao === 'kanban' ? '#fff' : 'var(--text-muted)',
+                border: 'none', padding: '7px 10px', display: 'flex', alignItems: 'center',
+              }}
+            >
+              <LayoutGrid size={15} aria-hidden="true" />
+            </button>
           </div>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Órgão</th><th>UF</th><th>Pregão</th><th>Processo</th>
-                <th>Modalidade</th><th>Status</th><th>Vencedora</th><th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {listaFiltrada.map(p => (
-                <tr key={p.id} onClick={() => navigate(`/processos/${p.id}`)} style={{ cursor: 'pointer' }}>
-                  <td>{p.orgaos?.nome}</td>
-                  <td>{p.orgaos?.uf}</td>
-                  <td className="mono">{p.numero_pregao}</td>
-                  <td className="mono">{p.numero_processo}</td>
-                  <td>{p.modalidade}</td>
-                  <td><StatusBadge status={p.status} /></td>
-                  <td>{p.empresa_vencedora || '—'}</td>
-                  <td>
-                    {ehAdmin && (
-                      <button className="icon-btn" onClick={(e) => { e.stopPropagation(); abrirEdicao(p) }} aria-label="Editar processo" title="Editar">
-                        <Pencil size={14} aria-hidden="true" />
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+          {ehAdmin && <button className="btn btn-primary" onClick={abrirNovo}><Plus size={15} aria-hidden="true" /> Novo processo</button>}
+        </div>
       </div>
+
+      {visualizacao === 'lista' && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+          {['TODOS', ...STATUS_OPCOES].map(s => (
+            <button
+              key={s}
+              onClick={() => setFiltroStatus(s)}
+              className="btn btn-sm"
+              style={{
+                background: filtroStatus === s ? 'var(--accent)' : 'var(--bg-elevated)',
+                color: filtroStatus === s ? '#fff' : 'var(--text)',
+                borderColor: 'var(--border)',
+              }}
+            >
+              {s === 'TODOS' ? 'Todos' : s.replace('_', ' ')}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {visualizacao === 'kanban' ? (
+        carregando ? (
+          <div className="empty-state">Carregando...</div>
+        ) : (
+          <KanbanProcessos processos={processos} ehAdmin={ehAdmin} onAtualizado={carregar} />
+        )
+      ) : (
+        <div className="table-wrap">
+          {carregando ? (
+            <div className="empty-state">Carregando...</div>
+          ) : listaFiltrada.length === 0 ? (
+            <div className="empty-state">
+              <h4>Nenhum processo encontrado</h4>
+              <p>Cadastre o primeiro processo para começar a acompanhar.</p>
+            </div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Órgão</th><th>UF</th><th>Pregão</th><th>Processo</th>
+                  <th>Modalidade</th><th>Status</th><th>Vencedora</th><th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {listaFiltrada.map(p => (
+                  <tr key={p.id} onClick={() => navigate(`/processos/${p.id}`)} style={{ cursor: 'pointer' }}>
+                    <td>{p.orgaos?.nome}</td>
+                    <td>{p.orgaos?.uf}</td>
+                    <td className="mono">{p.numero_pregao}</td>
+                    <td className="mono">{p.numero_processo}</td>
+                    <td>{p.modalidade}</td>
+                    <td><StatusBadge status={p.status} /></td>
+                    <td>{p.empresa_vencedora || '—'}</td>
+                    <td>
+                      {ehAdmin && (
+                        <button className="icon-btn" onClick={(e) => { e.stopPropagation(); abrirEdicao(p) }} aria-label="Editar processo" title="Editar">
+                          <Pencil size={14} aria-hidden="true" />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
 
       {modalAberto && (
         <Modal
