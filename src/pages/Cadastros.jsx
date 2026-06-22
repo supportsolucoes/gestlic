@@ -19,7 +19,7 @@ export default function Cadastros() {
   const [sucesso, setSucesso] = useState('')
   const [buscandoCnpj, setBuscandoCnpj] = useState(false)
   const [cnpjEncontrado, setCnpjEncontrado] = useState(false)
-  const [formOrgao, setFormOrgao] = useState({ nome: '', razao_social: '', uf: '', cnpj: '' })
+  const [formOrgao, setFormOrgao] = useState({ nome: '', razao_social: '', uf: '', cnpj: '', logradouro: '', numero: '', bairro: '', cidade: '', cep: '', telefone: '' })
   const [formProduto, setFormProduto] = useState({ nome: '', fornecedor_id: '', preco_custo: '' })
   const [formFornecedor, setFormFornecedor] = useState({ nome: '' })
   const [formUsuario, setFormUsuario] = useState({ nome: '', email: '', senha: '', papel: 'operador' })
@@ -42,7 +42,7 @@ export default function Cadastros() {
 
   function abrirNovoOrgao() {
     setEditandoOrgao(null)
-    setFormOrgao({ nome: '', razao_social: '', uf: '', cnpj: '' })
+    setFormOrgao({ nome: '', razao_social: '', uf: '', cnpj: '', logradouro: '', numero: '', bairro: '', cidade: '', cep: '', telefone: '' })
     setCnpjEncontrado(false)
     setErro('')
     setModalAberto(true)
@@ -50,7 +50,11 @@ export default function Cadastros() {
 
   function abrirEdicaoOrgao(o) {
     setEditandoOrgao(o)
-    setFormOrgao({ nome: o.nome || '', razao_social: o.razao_social || '', uf: o.uf || '', cnpj: o.cnpj || '' })
+    setFormOrgao({
+      nome: o.nome || '', razao_social: o.razao_social || '', uf: o.uf || '', cnpj: o.cnpj || '',
+      logradouro: o.logradouro || '', numero: o.numero || '', bairro: o.bairro || '',
+      cidade: o.cidade || '', cep: o.cep || '', telefone: o.telefone || '',
+    })
     setCnpjEncontrado(false)
     setErro('')
     setModalAberto(true)
@@ -64,6 +68,12 @@ export default function Cadastros() {
       razao_social: formOrgao.razao_social || null,
       uf: formOrgao.uf || null,
       cnpj: formOrgao.cnpj || null,
+      logradouro: formOrgao.logradouro || null,
+      numero: formOrgao.numero || null,
+      bairro: formOrgao.bairro || null,
+      cidade: formOrgao.cidade || null,
+      cep: formOrgao.cep || null,
+      telefone: formOrgao.telefone || null,
     }
     const { error } = editandoOrgao
       ? await supabase.from('orgaos').update(payload).eq('id', editandoOrgao.id)
@@ -152,6 +162,12 @@ export default function Cadastros() {
           // nunca sobrescreve algo que o usuário já tenha digitado.
           nome: prev.nome ? prev.nome : (nomeFantasia || razaoSocial),
           uf,
+          logradouro: dados.logradouro || '',
+          numero: dados.numero || '',
+          bairro: dados.bairro || '',
+          cidade: dados.municipio || '',
+          cep: dados.cep || '',
+          telefone: dados.ddd_telefone_1 || '',
         }))
         setCnpjEncontrado(true)
       } else if (resp.status === 404) {
@@ -327,6 +343,14 @@ export default function Cadastros() {
             <div className="form-field">
               <label>UF</label>
               <input value={formOrgao.uf} onChange={e => setFormOrgao({ ...formOrgao, uf: e.target.value.toUpperCase() })} maxLength={2} placeholder="SP" />
+            </div>
+            <div className="form-field full">
+              <label>Endereço da sede (referência, pode ser ajustado por entrega)</label>
+              <input
+                value={[formOrgao.logradouro, formOrgao.numero, formOrgao.bairro, formOrgao.cidade].filter(Boolean).join(', ')}
+                onChange={e => setFormOrgao({ ...formOrgao, logradouro: e.target.value, numero: '', bairro: '', cidade: '' })}
+                placeholder="Preenchido automaticamente pelo CNPJ, se disponível"
+              />
             </div>
           </form>
         </Modal>
