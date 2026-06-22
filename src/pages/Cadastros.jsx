@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react'
 import { Plus, Pencil } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import Modal from '../components/Modal'
+import { useAuth } from '../context/AuthContext'
 
 const ABAS = ['Órgãos', 'Produtos', 'Fornecedores', 'Usuários']
 
 export default function Cadastros() {
+  const { criarUsuario } = useAuth()
   const [aba, setAba] = useState('Órgãos')
   const [orgaos, setOrgaos] = useState([])
   const [produtos, setProdutos] = useState([])
@@ -14,9 +16,11 @@ export default function Cadastros() {
   const [modalAberto, setModalAberto] = useState(false)
   const [editandoOrgao, setEditandoOrgao] = useState(null)
   const [erro, setErro] = useState('')
+  const [sucesso, setSucesso] = useState('')
   const [formOrgao, setFormOrgao] = useState({ nome: '', uf: '', cnpj: '' })
   const [formProduto, setFormProduto] = useState({ nome: '', fornecedor_id: '', preco_custo: '' })
   const [formFornecedor, setFormFornecedor] = useState({ nome: '' })
+  const [formUsuario, setFormUsuario] = useState({ nome: '', email: '', senha: '', papel: 'operador' })
 
   async function carregar() {
     const { data: o } = await supabase
@@ -93,6 +97,22 @@ export default function Cadastros() {
     carregar()
   }
 
+  async function salvarUsuario(e) {
+    e.preventDefault()
+    setErro('')
+    setSucesso('')
+    const { error } = await criarUsuario(formUsuario.email, formUsuario.senha, formUsuario.nome, formUsuario.papel)
+    if (error) { setErro(error); return }
+    setSucesso(`Conta criada para ${formUsuario.nome}. Envie o e-mail e a senha para a pessoa.`)
+    setFormUsuario({ nome: '', email: '', senha: '', papel: 'operador' })
+    carregar()
+  }
+
+  function gerarSenhaAleatoria() {
+    const senha = Math.random().toString(36).slice(-10)
+    setFormUsuario({ ...formUsuario, senha })
+  }
+
   function formatarCnpj(valor) {
     const digitos = valor.replace(/\D/g, '').slice(0, 14)
     return digitos
@@ -104,11 +124,12 @@ export default function Cadastros() {
 
   function abrirModalNovo() {
     setErro('')
+    setSucesso('')
     if (aba === 'Órgãos') abrirNovoOrgao()
     else setModalAberto(true)
   }
 
-  const labelNovo = { 'Órgãos': 'órgão', 'Produtos': 'produto', 'Fornecedores': 'fornecedor' }[aba]
+  const labelNovo = { 'Órgãos': 'órgão', 'Produtos': 'produto', 'Fornecedores': 'fornecedor', 'Usuários': 'usuário' }[aba]
 
   return (
     <div>
@@ -117,11 +138,9 @@ export default function Cadastros() {
           <h1 className="page-title">Cadastros</h1>
           <p className="page-subtitle">Dados de apoio usados em processos e contratos.</p>
         </div>
-        {aba !== 'Usuários' && (
-          <button className="btn btn-primary" onClick={abrirModalNovo}>
-            <Plus size={15} aria-hidden="true" /> Novo {labelNovo}
-          </button>
-        )}
+        <button className="btn btn-primary" onClick={abrirModalNovo}>
+          <Plus size={15} aria-hidden="true" /> Novo {labelNovo}
+        </button>
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
@@ -201,6 +220,7 @@ export default function Cadastros() {
 
       {aba === 'Usuários' && (
         <div className="table-wrap">
+          {sucesso && <div className="alert-banner warn" style={{ margin: 16, marginBottom: 0 }}>{sucesso}</div>}
           <table>
             <thead><tr><th>Nome</th><th>Papel</th></tr></thead>
             <tbody>
@@ -291,6 +311,49 @@ export default function Cadastros() {
             <div className="form-field full">
               <label>Nome do fornecedor</label>
               <input value={formFornecedor.nome} onChange={e => setFormFornecedor({ ...formFornecedor, nome: e.target.value })} required />
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {modalAberto && aba === 'Usuários' && (
+        <Modal
+          titulo="Novo usuário"
+          onClose={() => setModalAberto(false)}
+          footer={<>
+            <button className="btn btn-secondary" onClick={() => setModalAberto(false)}>Cancelar</button>
+            <button className="btn btn-primary" onClick={salvarUsuario}>Criar conta</button>
+          </>}
+        >
+          {erro && <div className="alert-banner danger">{erro}</div>}
+          <form onSubmit={salvarUsuario} className="form-grid">
+            <div className="form-field full">
+              <label>Nome</label>
+              <input value={formUsuario.nome} onChange={e => setFormUsuario({ ...formUsuario, nome: e.target.value })} required />
+            </div>
+            <div className="form-field full">
+              <label>E-mail</label>
+              <input type="email" value={formUsuario.email} onChange={e => setFormUsuario({ ...formUsuario, email: e.target.value })} required />
+            </div>
+            <div className="form-field">
+              <label>Senha provisória</label>
+              <input value={formUsuario.senha} onChange={e => setFormUsuario({ ...formUsuario, senha: e.target.value })} required minLength={6} />
+            </div>
+            <div className="form-field" style={{ justifyContent: 'flex-end' }}>
+              <label>&nbsp;</label>
+              <button type="button" className="btn btn-secondary" onClick={gerarSenhaAleatoria}>Gerar senha</button>
+            </div>
+            <div className="form-field full">
+              <label>Papel</label>
+              <select value={formUsuario.papel} onChange={e => setFormUsuario({ ...formUsuario, papel: e.target.value })}>
+                <option value="operador">Operador</option>
+                <option value="admin">Administrador</option>
+              </select>
+            </div>
+            <div className="form-field full">
+              <div className="alert-banner warn">
+                Anote essa senha — você precisa enviá-la para a pessoa. Ela poderá trocá-la depois de entrar (em uma futura versão).
+              </div>
             </div>
           </form>
         </Modal>
