@@ -5,8 +5,8 @@ import { useAuth } from '../context/AuthContext'
 const LINKS = [
   { to: '/', label: 'Painel', Icon: LayoutGrid },
   { to: '/processos', label: 'Processos', Icon: FileText },
-  { to: '/contratos', label: 'Contratos / ATA', Icon: FileSignature },
-  { to: '/empenhos', label: 'Empenhos', Icon: Receipt },
+  { to: '/contratos', label: 'Relatório de contratos', Icon: FileSignature },
+  { to: '/empenhos', label: 'Relatório de empenhos', Icon: Receipt },
   { to: '/cadastros', label: 'Cadastros', Icon: Settings, adminOnly: true },
 ]
 
