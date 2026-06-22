@@ -17,6 +17,9 @@ export default function Empenhos() {
   const [modalEntrega, setModalEntrega] = useState(null) // empenho_id
   const [erro, setErro] = useState('')
   const [enviandoAnexo, setEnviandoAnexo] = useState(null) // empenho_id em upload
+  const [salvandoEmpenho, setSalvandoEmpenho] = useState(false)
+  const [arquivoNotaEmpenho, setArquivoNotaEmpenho] = useState(null)
+  const [arquivoNotaFiscal, setArquivoNotaFiscal] = useState(null)
 
   const [formEmpenho, setFormEmpenho] = useState({
     numero_empenho: '', data_emissao: hoje(), quantidade_empenhada: '',
@@ -79,14 +82,48 @@ export default function Empenhos() {
       responsavel_recebimento: '',
       telefone_entrega: orgao?.telefone || '',
     })
+    setArquivoNotaEmpenho(null)
+    setArquivoNotaFiscal(null)
     setErro('')
     setModalEmpenho(item.item_contrato_id)
+  }
+
+  async function subirArquivoEmpenho(empenhoId, arquivo, tipoDocumento) {
+    if (!arquivo) return { error: null }
+    if (arquivo.type !== 'application/pdf') {
+      return { error: 'Apenas arquivos PDF são aceitos.' }
+    }
+    if (arquivo.size > 10 * 1024 * 1024) {
+      return { error: 'O arquivo precisa ter no máximo 10 MB.' }
+    }
+
+    const caminho = `${empenhoId}/${Date.now()}-${arquivo.name}`
+    const { error: erroUpload } = await supabase.storage.from('documentos-empenho').upload(caminho, arquivo)
+    if (erroUpload) {
+      return { error: 'Falha ao enviar ' + arquivo.name + ': ' + erroUpload.message }
+    }
+
+    const { data: sessionData } = await supabase.auth.getSession()
+    const { error: erroMeta } = await supabase.from('anexos_empenho').insert({
+      empenho_id: empenhoId,
+      nome_arquivo: arquivo.name,
+      caminho_storage: caminho,
+      tipo_documento: tipoDocumento,
+      tamanho_bytes: arquivo.size,
+      enviado_por: sessionData?.session?.user?.id || null,
+    })
+    if (erroMeta) {
+      return { error: 'Falha ao salvar metadados de ' + arquivo.name + ': ' + erroMeta.message }
+    }
+    return { error: null }
   }
 
   async function salvarEmpenho(e) {
     e.preventDefault()
     setErro('')
-    const { error } = await supabase.from('empenhos').insert({
+    setSalvandoEmpenho(true)
+
+    const { data: novoEmpenho, error } = await supabase.from('empenhos').insert({
       item_contrato_id: modalEmpenho,
       numero_empenho: formEmpenho.numero_empenho,
       data_emissao: formEmpenho.data_emissao,
@@ -97,11 +134,33 @@ export default function Empenhos() {
       uf_entrega: formEmpenho.uf_entrega || null,
       responsavel_recebimento: formEmpenho.responsavel_recebimento || null,
       telefone_entrega: formEmpenho.telefone_entrega || null,
-    })
+    }).select('id').single()
+
     if (error) {
       setErro(limparMensagemBloqueio(error.message))
+      setSalvandoEmpenho(false)
       return
     }
+
+    // Empenho criado com sucesso — agora sobe os arquivos, se houver.
+    // Se algum upload falhar, o empenho já existe; avisamos mas não desfazemos o lançamento.
+    const erros = []
+    if (arquivoNotaEmpenho) {
+      const r = await subirArquivoEmpenho(novoEmpenho.id, arquivoNotaEmpenho, 'nota_empenho')
+      if (r.error) erros.push(r.error)
+    }
+    if (arquivoNotaFiscal) {
+      const r = await subirArquivoEmpenho(novoEmpenho.id, arquivoNotaFiscal, 'nota_fiscal')
+      if (r.error) erros.push(r.error)
+    }
+
+    setSalvandoEmpenho(false)
+    if (erros.length > 0) {
+      setErro('Empenho lançado, mas houve problema com anexos: ' + erros.join(' '))
+      carregar()
+      return
+    }
+
     setModalEmpenho(null)
     carregar()
   }
@@ -130,37 +189,10 @@ export default function Empenhos() {
 
   async function enviarAnexo(empenhoId, arquivo, tipoDocumento) {
     if (!arquivo) return
-    if (arquivo.type !== 'application/pdf') {
-      setErro('Apenas arquivos PDF são aceitos.')
-      return
-    }
-    if (arquivo.size > 10 * 1024 * 1024) {
-      setErro('O arquivo precisa ter no máximo 10 MB.')
-      return
-    }
     setEnviandoAnexo(empenhoId)
     setErro('')
-
-    const caminho = `${empenhoId}/${Date.now()}-${arquivo.name}`
-    const { error: erroUpload } = await supabase.storage.from('documentos-empenho').upload(caminho, arquivo)
-    if (erroUpload) {
-      setErro('Falha ao enviar o arquivo: ' + erroUpload.message)
-      setEnviandoAnexo(null)
-      return
-    }
-
-    const { data: sessionData } = await supabase.auth.getSession()
-    const { error: erroMeta } = await supabase.from('anexos_empenho').insert({
-      empenho_id: empenhoId,
-      nome_arquivo: arquivo.name,
-      caminho_storage: caminho,
-      tipo_documento: tipoDocumento,
-      tamanho_bytes: arquivo.size,
-      enviado_por: sessionData?.session?.user?.id || null,
-    })
-    if (erroMeta) {
-      setErro('Falha ao salvar o anexo: ' + erroMeta.message)
-    }
+    const { error } = await subirArquivoEmpenho(empenhoId, arquivo, tipoDocumento)
+    if (error) setErro(error)
     setEnviandoAnexo(null)
     carregar()
   }
@@ -350,8 +382,10 @@ export default function Empenhos() {
           onClose={() => { setModalEmpenho(null); setErro('') }}
           footer={
             <>
-              <button className="btn btn-secondary" onClick={() => { setModalEmpenho(null); setErro('') }}>Cancelar</button>
-              <button className="btn btn-primary" onClick={salvarEmpenho}>Lançar empenho</button>
+              <button className="btn btn-secondary" onClick={() => { setModalEmpenho(null); setErro('') }} disabled={salvandoEmpenho}>Cancelar</button>
+              <button className="btn btn-primary" onClick={salvarEmpenho} disabled={salvandoEmpenho}>
+                {salvandoEmpenho ? 'Lançando...' : 'Lançar empenho'}
+              </button>
             </>
           }
         >
@@ -373,6 +407,36 @@ export default function Empenhos() {
             <div className="form-field full">
               <label>Quantidade empenhada</label>
               <input type="number" min={0.01} step="0.01" value={formEmpenho.quantidade_empenhada} onChange={e => setFormEmpenho({ ...formEmpenho, quantidade_empenhada: e.target.value })} required />
+            </div>
+
+            <div className="form-field full" style={{ borderTop: '1px solid var(--border)', paddingTop: 14, marginTop: 4 }}>
+              <label style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Documentos (PDF, opcional)</label>
+            </div>
+            <div className="form-field">
+              <label>Nota de empenho</label>
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={e => setArquivoNotaEmpenho(e.target.files[0] || null)}
+              />
+              {arquivoNotaEmpenho && (
+                <span className="text-muted" style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <FileText size={11} aria-hidden="true" /> {arquivoNotaEmpenho.name}
+                </span>
+              )}
+            </div>
+            <div className="form-field">
+              <label>Nota fiscal</label>
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={e => setArquivoNotaFiscal(e.target.files[0] || null)}
+              />
+              {arquivoNotaFiscal && (
+                <span className="text-muted" style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <FileText size={11} aria-hidden="true" /> {arquivoNotaFiscal.name}
+                </span>
+              )}
             </div>
 
             <div className="form-field full" style={{ borderTop: '1px solid var(--border)', paddingTop: 14, marginTop: 4 }}>
