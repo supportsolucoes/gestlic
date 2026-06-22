@@ -19,7 +19,7 @@ export default function Cadastros() {
   const [sucesso, setSucesso] = useState('')
   const [buscandoCnpj, setBuscandoCnpj] = useState(false)
   const [cnpjEncontrado, setCnpjEncontrado] = useState(false)
-  const [formOrgao, setFormOrgao] = useState({ nome: '', uf: '', cnpj: '' })
+  const [formOrgao, setFormOrgao] = useState({ nome: '', razao_social: '', uf: '', cnpj: '' })
   const [formProduto, setFormProduto] = useState({ nome: '', fornecedor_id: '', preco_custo: '' })
   const [formFornecedor, setFormFornecedor] = useState({ nome: '' })
   const [formUsuario, setFormUsuario] = useState({ nome: '', email: '', senha: '', papel: 'operador' })
@@ -42,7 +42,7 @@ export default function Cadastros() {
 
   function abrirNovoOrgao() {
     setEditandoOrgao(null)
-    setFormOrgao({ nome: '', uf: '', cnpj: '' })
+    setFormOrgao({ nome: '', razao_social: '', uf: '', cnpj: '' })
     setCnpjEncontrado(false)
     setErro('')
     setModalAberto(true)
@@ -50,7 +50,7 @@ export default function Cadastros() {
 
   function abrirEdicaoOrgao(o) {
     setEditandoOrgao(o)
-    setFormOrgao({ nome: o.nome || '', uf: o.uf || '', cnpj: o.cnpj || '' })
+    setFormOrgao({ nome: o.nome || '', razao_social: o.razao_social || '', uf: o.uf || '', cnpj: o.cnpj || '' })
     setCnpjEncontrado(false)
     setErro('')
     setModalAberto(true)
@@ -61,6 +61,7 @@ export default function Cadastros() {
     setErro('')
     const payload = {
       nome: formOrgao.nome,
+      razao_social: formOrgao.razao_social || null,
       uf: formOrgao.uf || null,
       cnpj: formOrgao.cnpj || null,
     }
@@ -140,17 +141,26 @@ export default function Cadastros() {
       const resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${digitos}`)
       if (resp.ok) {
         const dados = await resp.json()
-        const nome = dados.razao_social || dados.nome_fantasia || ''
+        const razaoSocial = dados.razao_social || ''
+        const nomeFantasia = dados.nome_fantasia || ''
         const uf = dados.uf || ''
-        setFormOrgao(prev => ({ ...prev, cnpj: formatado, nome, uf }))
+        setFormOrgao(prev => ({
+          ...prev,
+          cnpj: formatado,
+          razao_social: razaoSocial,
+          // Sugere nome fantasia se existir e o campo "nome de uso" ainda estiver vazio;
+          // nunca sobrescreve algo que o usuário já tenha digitado.
+          nome: prev.nome ? prev.nome : (nomeFantasia || razaoSocial),
+          uf,
+        }))
         setCnpjEncontrado(true)
       } else if (resp.status === 404) {
-        setErro('CNPJ não encontrado na base da Receita Federal. Preencha o nome manualmente.')
+        setErro('CNPJ não encontrado na base da Receita Federal. Preencha os dados manualmente.')
       } else {
-        setErro('Não foi possível consultar o CNPJ agora. Preencha o nome manualmente.')
+        setErro('Não foi possível consultar o CNPJ agora. Preencha os dados manualmente.')
       }
     } catch {
-      setErro('Sem conexão com o serviço de consulta. Preencha o nome manualmente.')
+      setErro('Sem conexão com o serviço de consulta. Preencha os dados manualmente.')
     } finally {
       setBuscandoCnpj(false)
     }
@@ -300,13 +310,19 @@ export default function Cadastros() {
               )}
               {cnpjEncontrado && !buscandoCnpj && (
                 <span style={{ fontSize: 12, color: 'var(--ok)', display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                  <CheckCircle2 size={12} aria-hidden="true" /> Dados encontrados e preenchidos automaticamente
+                  <CheckCircle2 size={12} aria-hidden="true" /> CNPJ localizado na Receita Federal
                 </span>
               )}
             </div>
+            {formOrgao.razao_social && (
+              <div className="form-field full">
+                <label>Razão social (Receita Federal)</label>
+                <input value={formOrgao.razao_social} readOnly style={{ background: 'var(--bg)', color: 'var(--text-muted)' }} />
+              </div>
+            )}
             <div className="form-field full">
-              <label>Nome do órgão</label>
-              <input value={formOrgao.nome} onChange={e => setFormOrgao({ ...formOrgao, nome: e.target.value })} required placeholder="Prefeitura Municipal de..." />
+              <label>Nome de uso (como vai aparecer nas telas)</label>
+              <input value={formOrgao.nome} onChange={e => setFormOrgao({ ...formOrgao, nome: e.target.value })} required placeholder="Ex: Hospital Regional de Divinolândia" />
             </div>
             <div className="form-field">
               <label>UF</label>
