@@ -1,21 +1,29 @@
 import { useEffect, useState } from 'react'
-import { Plus } from 'lucide-react'
+import { Plus, Pencil } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import Modal from '../components/Modal'
 
-const ABAS = ['Produtos', 'Fornecedores', 'Usuários']
+const ABAS = ['Órgãos', 'Produtos', 'Fornecedores', 'Usuários']
 
 export default function Cadastros() {
-  const [aba, setAba] = useState('Produtos')
+  const [aba, setAba] = useState('Órgãos')
+  const [orgaos, setOrgaos] = useState([])
   const [produtos, setProdutos] = useState([])
   const [fornecedores, setFornecedores] = useState([])
   const [perfis, setPerfis] = useState([])
   const [modalAberto, setModalAberto] = useState(false)
+  const [editandoOrgao, setEditandoOrgao] = useState(null)
   const [erro, setErro] = useState('')
+  const [formOrgao, setFormOrgao] = useState({ nome: '', uf: '', cnpj: '' })
   const [formProduto, setFormProduto] = useState({ nome: '', fornecedor_id: '', preco_custo: '' })
   const [formFornecedor, setFormFornecedor] = useState({ nome: '' })
 
   async function carregar() {
+    const { data: o } = await supabase
+      .from('orgaos')
+      .select('*, processos(id)')
+      .order('nome')
+    setOrgaos(o || [])
     const { data: p } = await supabase.from('produtos').select('*, fornecedores_referencia(nome)').order('nome')
     setProdutos(p || [])
     const { data: f } = await supabase.from('fornecedores_referencia').select('*').order('nome')
@@ -25,6 +33,36 @@ export default function Cadastros() {
   }
 
   useEffect(() => { carregar() }, [])
+
+  function abrirNovoOrgao() {
+    setEditandoOrgao(null)
+    setFormOrgao({ nome: '', uf: '', cnpj: '' })
+    setErro('')
+    setModalAberto(true)
+  }
+
+  function abrirEdicaoOrgao(o) {
+    setEditandoOrgao(o)
+    setFormOrgao({ nome: o.nome || '', uf: o.uf || '', cnpj: o.cnpj || '' })
+    setErro('')
+    setModalAberto(true)
+  }
+
+  async function salvarOrgao(e) {
+    e.preventDefault()
+    setErro('')
+    const payload = {
+      nome: formOrgao.nome,
+      uf: formOrgao.uf || null,
+      cnpj: formOrgao.cnpj || null,
+    }
+    const { error } = editandoOrgao
+      ? await supabase.from('orgaos').update(payload).eq('id', editandoOrgao.id)
+      : await supabase.from('orgaos').insert(payload)
+    if (error) { setErro(error.message); return }
+    setModalAberto(false)
+    carregar()
+  }
 
   async function salvarProduto(e) {
     e.preventDefault()
@@ -55,6 +93,23 @@ export default function Cadastros() {
     carregar()
   }
 
+  function formatarCnpj(valor) {
+    const digitos = valor.replace(/\D/g, '').slice(0, 14)
+    return digitos
+      .replace(/^(\d{2})(\d)/, '$1.$2')
+      .replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3')
+      .replace(/\.(\d{3})(\d)/, '.$1/$2')
+      .replace(/(\d{4})(\d)/, '$1-$2')
+  }
+
+  function abrirModalNovo() {
+    setErro('')
+    if (aba === 'Órgãos') abrirNovoOrgao()
+    else setModalAberto(true)
+  }
+
+  const labelNovo = { 'Órgãos': 'órgão', 'Produtos': 'produto', 'Fornecedores': 'fornecedor' }[aba]
+
   return (
     <div>
       <div className="page-header">
@@ -63,8 +118,8 @@ export default function Cadastros() {
           <p className="page-subtitle">Dados de apoio usados em processos e contratos.</p>
         </div>
         {aba !== 'Usuários' && (
-          <button className="btn btn-primary" onClick={() => { setErro(''); setModalAberto(true) }}>
-            <Plus size={15} aria-hidden="true" /> Novo {aba === 'Produtos' ? 'produto' : 'fornecedor'}
+          <button className="btn btn-primary" onClick={abrirModalNovo}>
+            <Plus size={15} aria-hidden="true" /> Novo {labelNovo}
           </button>
         )}
       </div>
@@ -85,6 +140,36 @@ export default function Cadastros() {
           </button>
         ))}
       </div>
+
+      {aba === 'Órgãos' && (
+        <div className="table-wrap">
+          {orgaos.length === 0 ? (
+            <div className="empty-state">
+              <h4>Nenhum órgão cadastrado</h4>
+              <p>Órgãos também são criados automaticamente ao cadastrar um processo — mas você pode adicionar ou completar os dados aqui.</p>
+            </div>
+          ) : (
+            <table>
+              <thead><tr><th>Órgão</th><th>UF</th><th>CNPJ</th><th>Processos</th><th></th></tr></thead>
+              <tbody>
+                {orgaos.map(o => (
+                  <tr key={o.id}>
+                    <td>{o.nome}</td>
+                    <td>{o.uf || '—'}</td>
+                    <td className="mono">{o.cnpj || '—'}</td>
+                    <td>{o.processos?.length || 0}</td>
+                    <td>
+                      <button className="icon-btn" onClick={() => abrirEdicaoOrgao(o)} aria-label="Editar órgão" title="Editar">
+                        <Pencil size={14} aria-hidden="true" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
 
       {aba === 'Produtos' && (
         <div className="table-wrap">
@@ -133,6 +218,33 @@ export default function Cadastros() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {modalAberto && aba === 'Órgãos' && (
+        <Modal
+          titulo={editandoOrgao ? 'Editar órgão' : 'Novo órgão'}
+          onClose={() => setModalAberto(false)}
+          footer={<>
+            <button className="btn btn-secondary" onClick={() => setModalAberto(false)}>Cancelar</button>
+            <button className="btn btn-primary" onClick={salvarOrgao}>Salvar</button>
+          </>}
+        >
+          {erro && <div className="alert-banner danger">{erro}</div>}
+          <form onSubmit={salvarOrgao} className="form-grid">
+            <div className="form-field full">
+              <label>Nome do órgão</label>
+              <input value={formOrgao.nome} onChange={e => setFormOrgao({ ...formOrgao, nome: e.target.value })} required placeholder="Prefeitura Municipal de..." />
+            </div>
+            <div className="form-field">
+              <label>UF</label>
+              <input value={formOrgao.uf} onChange={e => setFormOrgao({ ...formOrgao, uf: e.target.value.toUpperCase() })} maxLength={2} placeholder="SP" />
+            </div>
+            <div className="form-field">
+              <label>CNPJ</label>
+              <input value={formOrgao.cnpj} onChange={e => setFormOrgao({ ...formOrgao, cnpj: formatarCnpj(e.target.value) })} maxLength={18} placeholder="00.000.000/0000-00" />
+            </div>
+          </form>
+        </Modal>
       )}
 
       {modalAberto && aba === 'Produtos' && (
