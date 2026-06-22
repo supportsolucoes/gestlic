@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, Calendar, Truck, TrendingUp, PackageX } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { AlertTriangle, Calendar, Truck, TrendingUp, PackageX, ArrowUpRight } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import StatusBadge from '../components/StatusBadge'
 
 export default function Painel() {
+  const navigate = useNavigate()
   const [kpi, setKpi] = useState({ totalProcessos: 0, ganhos: 0, taxaConversao: 0, contratosVigentes: 0 })
   const [vencimentosProximos, setVencimentosProximos] = useState([])
   const [entregasAtrasadas, setEntregasAtrasadas] = useState([])
@@ -20,7 +22,7 @@ export default function Painel() {
 
       const { data: contratos } = await supabase
         .from('contratos')
-        .select('*, processos(orgaos(nome))')
+        .select('*, processos(id, orgaos(nome))')
         .eq('ativo', true)
         .order('data_vencimento')
 
@@ -30,7 +32,9 @@ export default function Painel() {
 
       const { data: saldoEmpenhos } = await supabase.from('vw_saldo_empenhos').select('*').eq('entrega_atrasada', true)
 
-      const { data: saldoItens } = await supabase.from('vw_saldo_itens').select('*')
+      const { data: saldoItens } = await supabase
+        .from('vw_saldo_itens')
+        .select('*, itens_contrato(contrato_id, contratos(processo_id))')
       const criticos = (saldoItens || []).filter(i => {
         const pct = i.quantidade_contratada > 0 ? (i.quantidade_empenhada / i.quantidade_contratada) * 100 : 0
         return pct >= 90
@@ -92,12 +96,12 @@ export default function Painel() {
           </div>
         ) : (
           <table>
-            <thead><tr><th>Órgão</th><th>ATA</th><th>Vencimento</th><th>Situação</th></tr></thead>
+            <thead><tr><th>Órgão</th><th>ATA</th><th>Vencimento</th><th>Situação</th><th></th></tr></thead>
             <tbody>
               {vencimentosProximos.map(c => {
                 const dias = diasPara(c.data_vencimento)
                 return (
-                  <tr key={c.id}>
+                  <tr key={c.id} onClick={() => c.processos?.id && navigate(`/processos/${c.processos.id}`)} style={{ cursor: c.processos?.id ? 'pointer' : 'default' }}>
                     <td>{c.processos?.orgaos?.nome}</td>
                     <td className="mono">{c.numero_ata}</td>
                     <td className="mono">{new Date(c.data_vencimento).toLocaleDateString('pt-BR')}</td>
@@ -106,6 +110,7 @@ export default function Painel() {
                         <Calendar size={11} aria-hidden="true" /> {dias < 0 ? `Vencido há ${Math.abs(dias)}d` : `Vence em ${dias}d`}
                       </span>
                     </td>
+                    <td><ArrowUpRight size={13} aria-hidden="true" className="text-muted" /></td>
                   </tr>
                 )
               })}
@@ -148,20 +153,24 @@ export default function Painel() {
           </div>
         ) : (
           <table>
-            <thead><tr><th>Produto</th><th>Contratado</th><th>Empenhado</th><th>Saldo restante</th></tr></thead>
+            <thead><tr><th>Produto</th><th>Contratado</th><th>Empenhado</th><th>Saldo restante</th><th></th></tr></thead>
             <tbody>
-              {itensCriticos.map(i => (
-                <tr key={i.item_contrato_id}>
-                  <td>{i.produto}</td>
-                  <td className="mono">{Number(i.quantidade_contratada).toLocaleString('pt-BR')}</td>
-                  <td className="mono">{Number(i.quantidade_empenhada).toLocaleString('pt-BR')}</td>
-                  <td>
-                    <span className="badge badge-warn">
-                      <PackageX size={11} aria-hidden="true" /> {Number(i.saldo_a_empenhar).toLocaleString('pt-BR')} restante
-                    </span>
-                  </td>
-                </tr>
-              ))}
+              {itensCriticos.map(i => {
+                const processoId = i.itens_contrato?.contratos?.processo_id
+                return (
+                  <tr key={i.item_contrato_id} onClick={() => processoId && navigate(`/processos/${processoId}`)} style={{ cursor: processoId ? 'pointer' : 'default' }}>
+                    <td>{i.produto}</td>
+                    <td className="mono">{Number(i.quantidade_contratada).toLocaleString('pt-BR')}</td>
+                    <td className="mono">{Number(i.quantidade_empenhada).toLocaleString('pt-BR')}</td>
+                    <td>
+                      <span className="badge badge-warn">
+                        <PackageX size={11} aria-hidden="true" /> {Number(i.saldo_a_empenhar).toLocaleString('pt-BR')} restante
+                      </span>
+                    </td>
+                    <td><ArrowUpRight size={13} aria-hidden="true" className="text-muted" /></td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         )}
