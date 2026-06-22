@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus, ShieldAlert, Truck } from 'lucide-react'
+import { Plus, ShieldAlert, Truck, MapPin } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import Modal from '../components/Modal'
 import SaldoBar from '../components/SaldoBar'
@@ -12,7 +12,11 @@ export default function Empenhos() {
   const [modalEntrega, setModalEntrega] = useState(null) // empenho_id
   const [erro, setErro] = useState('')
 
-  const [formEmpenho, setFormEmpenho] = useState({ numero_empenho: '', data_emissao: hoje(), quantidade_empenhada: '' })
+  const [formEmpenho, setFormEmpenho] = useState({
+    numero_empenho: '', data_emissao: hoje(), quantidade_empenhada: '',
+    local_entrega: '', endereco_entrega: '', cidade_entrega: '', uf_entrega: '',
+    responsavel_recebimento: '', telefone_entrega: '',
+  })
   const [formEntrega, setFormEntrega] = useState({ data_envio: hoje(), quantidade_entregue: '' })
 
   function hoje() { return new Date().toISOString().slice(0, 10) }
@@ -23,7 +27,7 @@ export default function Empenhos() {
     const { data: i } = await supabase.from('vw_saldo_itens').select('*')
     const { data: ic } = await supabase
       .from('itens_contrato')
-      .select('id, contrato_id, contratos(numero_ata, processos(orgaos(nome)))')
+      .select('id, contrato_id, contratos(numero_ata, processos(orgaos(nome, logradouro, numero, bairro, cidade, uf, cep, telefone)))')
 
     const contextoPorItem = {}
     ;(ic || []).forEach(c => { contextoPorItem[c.id] = c })
@@ -46,6 +50,24 @@ export default function Empenhos() {
 
   useEffect(() => { carregar() }, [])
 
+  function abrirModalEmpenho(item) {
+    const orgao = item.itens_contrato?.contratos?.processos?.orgaos
+    const enderecoSugerido = orgao
+      ? [orgao.logradouro, orgao.numero, orgao.bairro, orgao.cidade].filter(Boolean).join(', ')
+      : ''
+    setFormEmpenho({
+      numero_empenho: '', data_emissao: hoje(), quantidade_empenhada: '',
+      local_entrega: orgao?.nome || '',
+      endereco_entrega: enderecoSugerido,
+      cidade_entrega: orgao?.cidade || '',
+      uf_entrega: orgao?.uf || '',
+      responsavel_recebimento: '',
+      telefone_entrega: orgao?.telefone || '',
+    })
+    setErro('')
+    setModalEmpenho(item.item_contrato_id)
+  }
+
   async function salvarEmpenho(e) {
     e.preventDefault()
     setErro('')
@@ -54,13 +76,18 @@ export default function Empenhos() {
       numero_empenho: formEmpenho.numero_empenho,
       data_emissao: formEmpenho.data_emissao,
       quantidade_empenhada: Number(formEmpenho.quantidade_empenhada),
+      local_entrega: formEmpenho.local_entrega || null,
+      endereco_entrega: formEmpenho.endereco_entrega || null,
+      cidade_entrega: formEmpenho.cidade_entrega || null,
+      uf_entrega: formEmpenho.uf_entrega || null,
+      responsavel_recebimento: formEmpenho.responsavel_recebimento || null,
+      telefone_entrega: formEmpenho.telefone_entrega || null,
     })
     if (error) {
       setErro(limparMensagemBloqueio(error.message))
       return
     }
     setModalEmpenho(null)
-    setFormEmpenho({ numero_empenho: '', data_emissao: hoje(), quantidade_empenhada: '' })
     carregar()
   }
 
@@ -145,6 +172,11 @@ export default function Empenhos() {
                                     Prazo: {new Date(em.data_limite_entrega).toLocaleDateString('pt-BR')}
                                   </div>
                                 )}
+                                {em.local_entrega && (
+                                  <div className="text-muted" style={{ fontSize: 11, marginTop: 1, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <MapPin size={11} aria-hidden="true" /> {em.local_entrega}
+                                  </div>
+                                )}
                               </div>
                               <button className="btn btn-secondary btn-sm" onClick={() => setModalEntrega(em.empenho_id)}>
                                 <Truck size={12} aria-hidden="true" /> Registrar entrega
@@ -155,7 +187,7 @@ export default function Empenhos() {
                       )}
                     </td>
                     <td>
-                      <button className="btn btn-primary btn-sm" onClick={() => setModalEmpenho(i.item_contrato_id)}>
+                      <button className="btn btn-primary btn-sm" onClick={() => abrirModalEmpenho(i)}>
                         <Plus size={13} aria-hidden="true" /> Empenho
                       </button>
                     </td>
@@ -196,6 +228,34 @@ export default function Empenhos() {
             <div className="form-field full">
               <label>Quantidade empenhada</label>
               <input type="number" min={0.01} step="0.01" value={formEmpenho.quantidade_empenhada} onChange={e => setFormEmpenho({ ...formEmpenho, quantidade_empenhada: e.target.value })} required />
+            </div>
+
+            <div className="form-field full" style={{ borderTop: '1px solid var(--border)', paddingTop: 14, marginTop: 4 }}>
+              <label style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Local de entrega</label>
+            </div>
+            <div className="form-field full">
+              <label>Local / unidade de destino</label>
+              <input value={formEmpenho.local_entrega} onChange={e => setFormEmpenho({ ...formEmpenho, local_entrega: e.target.value })} placeholder="Ex: Hospital Municipal, Almoxarifado Central" />
+            </div>
+            <div className="form-field full">
+              <label>Endereço</label>
+              <input value={formEmpenho.endereco_entrega} onChange={e => setFormEmpenho({ ...formEmpenho, endereco_entrega: e.target.value })} placeholder="Rua, número, bairro" />
+            </div>
+            <div className="form-field">
+              <label>Cidade</label>
+              <input value={formEmpenho.cidade_entrega} onChange={e => setFormEmpenho({ ...formEmpenho, cidade_entrega: e.target.value })} />
+            </div>
+            <div className="form-field">
+              <label>UF</label>
+              <input value={formEmpenho.uf_entrega} onChange={e => setFormEmpenho({ ...formEmpenho, uf_entrega: e.target.value.toUpperCase() })} maxLength={2} />
+            </div>
+            <div className="form-field">
+              <label>Responsável pelo recebimento</label>
+              <input value={formEmpenho.responsavel_recebimento} onChange={e => setFormEmpenho({ ...formEmpenho, responsavel_recebimento: e.target.value })} placeholder="Nome de quem recebe" />
+            </div>
+            <div className="form-field">
+              <label>Telefone de contato</label>
+              <input value={formEmpenho.telefone_entrega} onChange={e => setFormEmpenho({ ...formEmpenho, telefone_entrega: e.target.value })} placeholder="(00) 0000-0000" />
             </div>
           </form>
         </Modal>
