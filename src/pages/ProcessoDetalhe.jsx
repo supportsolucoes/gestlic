@@ -33,6 +33,7 @@ export default function ProcessoDetalhe() {
 
   const [itemExpandido, setItemExpandido] = useState(null)
   const [empenhoExpandido, setEmpenhoExpandido] = useState(null)
+  const [abaPorContrato, setAbaPorContrato] = useState({}) // contrato_id -> 'itens' | 'pedidos'
 
   const [modalProcesso, setModalProcesso] = useState(false)
   const [modalAtaContrato, setModalAtaContrato] = useState(null) // 'ATA' | 'EMPENHO_DIRETO' | null
@@ -459,9 +460,20 @@ export default function ProcessoDetalhe() {
           {contratos.map(c => {
             const vencContrato = statusVencimento(c.data_vencimento)
             const itensDoContrato = itens.filter(i => i.contrato_id === c.id)
+            const valorTotalContrato = itensDoContrato.reduce((soma, i) => soma + Number(i.quantidade_contratada) * Number(i.valor_unitario), 0)
+            const totalSolicitado = itensDoContrato.reduce((soma, i) => soma + Number(i.quantidade_empenhada), 0)
+            const totalContratadoQtd = itensDoContrato.reduce((soma, i) => soma + Number(i.quantidade_contratada), 0)
+            // Pedidos = todos os empenhos de todos os itens deste contrato, numa lista só
+            const pedidosDoContrato = itensDoContrato.flatMap(i =>
+              (empenhosPorItem[i.item_contrato_id] || []).map(em => ({ ...em, _produto: i.produto, _item_id: i.item_contrato_id }))
+            )
+            const totalEntregue = pedidosDoContrato.reduce((soma, em) => soma + Number(em.quantidade_entregue || 0), 0)
+            const totalSolicitadoQtd = pedidosDoContrato.reduce((soma, em) => soma + Number(em.quantidade_empenhada || 0), 0)
+            const abaAtiva = abaPorContrato[c.id] || 'itens'
+
             return (
               <div key={c.id} className="card card-pad">
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     {c.tipo === 'ATA' ? <ScrollText size={16} aria-hidden="true" className="text-muted" /> : <FileText size={16} aria-hidden="true" className="text-muted" />}
                     <span style={{ fontWeight: 600 }}>
@@ -477,7 +489,83 @@ export default function ProcessoDetalhe() {
                   )}
                 </div>
 
-                {itensDoContrato.length === 0 ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 28, padding: '14px 0', borderBottom: '1px solid var(--border)', marginBottom: 14 }}>
+                  <div style={{ minWidth: 160 }}>
+                    <div className="text-muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>Total solicitado</div>
+                    <SaldoBar contratado={totalContratadoQtd} usado={totalSolicitado} />
+                    <div className="text-muted" style={{ fontSize: 11, marginTop: 2 }}>{valorTotalContrato.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</div>
+                  </div>
+                  <div style={{ minWidth: 160 }}>
+                    <div className="text-muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>Total entregue</div>
+                    <SaldoBar contratado={totalSolicitadoQtd} usado={totalEntregue} labelUsado="entregue" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12.5 }} className="text-muted">
+                    {c.prazo_entrega_dias && <span>Prazo de entrega: {c.prazo_entrega_dias} dias {c.prazo_entrega_uteis ? 'úteis' : 'corridos'}</span>}
+                    {c.prazo_pagamento_dias && <span>Prazo de pagamento: {c.prazo_pagamento_dias} dias {c.prazo_pagamento_uteis ? 'úteis' : 'corridos'}</span>}
+                    <span>Telefone: {c.telefone_contato || 'Não informado'}</span>
+                    <span>Email: {c.email_contato || 'Não informado'}</span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: '1px solid var(--border)' }}>
+                  <button
+                    onClick={() => setAbaPorContrato(prev => ({ ...prev, [c.id]: 'itens' }))}
+                    style={{
+                      background: 'none', border: 'none', padding: '8px 4px', marginRight: 18, cursor: 'pointer',
+                      fontSize: 13.5, fontWeight: 600,
+                      color: abaAtiva === 'itens' ? 'var(--accent)' : 'var(--text-muted)',
+                      borderBottom: abaAtiva === 'itens' ? '2px solid var(--accent)' : '2px solid transparent',
+                    }}
+                  >
+                    Itens
+                  </button>
+                  <button
+                    onClick={() => setAbaPorContrato(prev => ({ ...prev, [c.id]: 'pedidos' }))}
+                    style={{
+                      background: 'none', border: 'none', padding: '8px 4px', cursor: 'pointer',
+                      fontSize: 13.5, fontWeight: 600,
+                      color: abaAtiva === 'pedidos' ? 'var(--accent)' : 'var(--text-muted)',
+                      borderBottom: abaAtiva === 'pedidos' ? '2px solid var(--accent)' : '2px solid transparent',
+                    }}
+                  >
+                    Pedidos {pedidosDoContrato.length > 0 && `(${pedidosDoContrato.length})`}
+                  </button>
+                </div>
+
+                {abaAtiva === 'pedidos' ? (
+                  pedidosDoContrato.length === 0 ? (
+                    <div className="text-muted" style={{ fontSize: 13 }}>Nenhum pedido (empenho) lançado ainda.</div>
+                  ) : (
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Nº empenho</th>
+                            <th>Item</th>
+                            <th>Qtd. empenhada</th>
+                            <th>Qtd. entregue</th>
+                            <th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pedidosDoContrato.map(em => (
+                            <tr
+                              key={em.empenho_id}
+                              style={{ cursor: 'pointer' }}
+                              onClick={() => { setAbaPorContrato(prev => ({ ...prev, [c.id]: 'itens' })); setItemExpandido(em._item_id); setEmpenhoExpandido(em.empenho_id) }}
+                            >
+                              <td className="mono">{em.numero_empenho || 'NE'}</td>
+                              <td>{em._produto}</td>
+                              <td>{Number(em.quantidade_empenhada).toLocaleString('pt-BR')}</td>
+                              <td>{Number(em.quantidade_entregue || 0).toLocaleString('pt-BR')}</td>
+                              <td>{em.entrega_atrasada ? <span className="badge badge-danger"><ShieldAlert size={10} aria-hidden="true" /> Atrasada</span> : <span className="badge badge-ok">Em dia</span>}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                ) : itensDoContrato.length === 0 ? (
                   <div className="text-muted" style={{ fontSize: 13 }}>Nenhum item cadastrado ainda.</div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
