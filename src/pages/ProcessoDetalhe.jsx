@@ -24,7 +24,7 @@ export default function ProcessoDetalhe() {
   const { ehAdmin } = useAuth()
 
   const [processo, setProcesso] = useState(null)
-  const [contrato, setContrato] = useState(null)
+  const [contratos, setContratos] = useState([])
   const [itens, setItens] = useState([])
   const [empenhosPorItem, setEmpenhosPorItem] = useState({})
   const [anexosPorEmpenho, setAnexosPorEmpenho] = useState({})
@@ -36,7 +36,7 @@ export default function ProcessoDetalhe() {
 
   const [modalProcesso, setModalProcesso] = useState(false)
   const [modalAtaContrato, setModalAtaContrato] = useState(null) // 'ATA' | 'EMPENHO_DIRETO' | null
-  const [modalItem, setModalItem] = useState(false)
+  const [modalItem, setModalItem] = useState(null) // contrato_id de destino, ou null se fechado
   const [modalEmpenho, setModalEmpenho] = useState(null) // item_contrato_id
   const [modalEntrega, setModalEntrega] = useState(null) // empenho_id
   const [salvandoEmpenho, setSalvandoEmpenho] = useState(false)
@@ -73,15 +73,16 @@ export default function ProcessoDetalhe() {
       .single()
     setProcesso(p)
 
-    const { data: c } = await supabase
+    const { data: listaContratos } = await supabase
       .from('contratos')
       .select('*')
       .eq('processo_id', id)
-      .maybeSingle()
-    setContrato(c)
+      .order('created_at', { ascending: true })
+    setContratos(listaContratos || [])
 
-    if (c) {
-      const { data: itensComSaldo } = await supabase.from('vw_saldo_itens').select('*').eq('contrato_id', c.id)
+    if (listaContratos && listaContratos.length > 0) {
+      const contratoIds = listaContratos.map(c => c.id)
+      const { data: itensComSaldo } = await supabase.from('vw_saldo_itens').select('*').in('contrato_id', contratoIds)
       setItens(itensComSaldo || [])
 
       const itemIds = (itensComSaldo || []).map(i => i.item_contrato_id)
@@ -259,14 +260,14 @@ export default function ProcessoDetalhe() {
     e.preventDefault()
     setErro('')
     const { error } = await supabase.from('itens_contrato').insert({
-      contrato_id: contrato.id,
+      contrato_id: modalItem,
       produto_nome_livre: formItem.produto_nome_livre,
       quantidade_contratada: Number(formItem.quantidade_contratada),
       valor_unitario: Number(formItem.valor_unitario),
       prazo_entrega_dias: Number(formItem.prazo_entrega_dias),
     })
     if (error) { setErro(error.message); return }
-    setModalItem(false)
+    setModalItem(null)
     setFormItem({ produto_nome_livre: '', quantidade_contratada: '', valor_unitario: '', prazo_entrega_dias: 30 })
     carregar()
   }
@@ -399,8 +400,6 @@ export default function ProcessoDetalhe() {
   if (carregando) return <div className="empty-state">Carregando...</div>
   if (!processo) return <div className="empty-state"><h4>Processo não encontrado</h4></div>
 
-  const vencContrato = contrato ? statusVencimento(contrato.data_vencimento) : null
-
   return (
     <div>
       <button className="btn btn-secondary btn-sm" onClick={() => navigate('/processos')} style={{ marginBottom: 16 }}>
@@ -431,169 +430,179 @@ export default function ProcessoDetalhe() {
         </div>
       )}
 
-      {processo.status !== 'GANHOU' && !contrato && (
+      {processo.status !== 'GANHOU' && contratos.length === 0 && (
         <div className="empty-state">
           <h4>Sem contrato</h4>
           <p>Contratos só podem ser criados para processos marcados como "Ganhou". Edite o processo para atualizar o status.</p>
         </div>
       )}
 
-      {processo.status === 'GANHOU' && !contrato && (
-        <div className="card card-pad" style={{ textAlign: 'center' }}>
-          <p className="text-muted" style={{ marginBottom: 12 }}>Este processo ainda não tem contrato/ATA cadastrado.</p>
-          {ehAdmin && (
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-              <button className="btn btn-primary" onClick={() => abrirModalAtaContrato('ATA')}>
-                <ScrollText size={15} aria-hidden="true" /> Adicionar Ata
-              </button>
-              <button className="btn btn-secondary" onClick={() => abrirModalAtaContrato('EMPENHO_DIRETO')}>
-                <FileSignature size={15} aria-hidden="true" /> Adicionar Contrato
-              </button>
-            </div>
-          )}
+      {processo.status === 'GANHOU' && ehAdmin && (
+        <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+          <button className="btn btn-primary" onClick={() => abrirModalAtaContrato('ATA')}>
+            <ScrollText size={15} aria-hidden="true" /> Adicionar Ata
+          </button>
+          <button className="btn btn-secondary" onClick={() => abrirModalAtaContrato('EMPENHO_DIRETO')}>
+            <FileSignature size={15} aria-hidden="true" /> Adicionar Contrato
+          </button>
         </div>
       )}
 
-      {contrato && (
-        <div className="card card-pad">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <FileText size={16} aria-hidden="true" className="text-muted" />
-              <span style={{ fontWeight: 600 }}>
-                {contrato.numero_ata || `Sem número`} <span className="text-muted" style={{ fontWeight: 500, fontSize: 12 }}>({contrato.tipo === 'ATA' ? 'Ata' : 'Contrato'})</span>
-              </span>
-              {vencContrato && <span className={`badge ${vencContrato.cls}`}>{vencContrato.label}</span>}
-            </div>
-            {ehAdmin && (
-              <button className="btn btn-secondary btn-sm" onClick={() => setModalItem(true)}>
-                <Plus size={13} aria-hidden="true" /> Adicionar item
-              </button>
-            )}
-          </div>
+      {processo.status === 'GANHOU' && contratos.length === 0 && (
+        <div className="card card-pad" style={{ textAlign: 'center' }}>
+          <p className="text-muted" style={{ margin: 0 }}>Este processo ainda não tem contrato/ATA cadastrado. Use os botões acima para adicionar.</p>
+        </div>
+      )}
 
-          {itens.length === 0 ? (
-            <div className="text-muted" style={{ fontSize: 13 }}>Nenhum item cadastrado ainda.</div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {itens.map(i => {
-                const empsDoItem = empenhosPorItem[i.item_contrato_id] || []
-                const aberto = itemExpandido === i.item_contrato_id
-                const algumAtrasado = empsDoItem.some(em => em.entrega_atrasada)
-                return (
-                  <div key={i.item_contrato_id} style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-                    <div
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', cursor: 'pointer' }}
-                      onClick={() => setItemExpandido(aberto ? null : i.item_contrato_id)}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
-                        {aberto ? <ChevronDown size={15} aria-hidden="true" /> : <ChevronRight size={15} aria-hidden="true" />}
-                        <span style={{ fontWeight: 500, fontSize: 13 }}>
-                          {i.produto}
-                          {(i.marca || i.modelo) && (
-                            <span className="text-muted" style={{ fontWeight: 400, fontSize: 12 }}>
-                              {' '}— {[i.marca, i.modelo].filter(Boolean).join(' / ')}
-                            </span>
-                          )}
-                        </span>
-                        <div style={{ minWidth: 150, maxWidth: 200, flex: 1 }}>
-                          <SaldoBar contratado={Number(i.quantidade_contratada)} usado={Number(i.quantidade_empenhada)} />
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span className="badge badge-neutral">{empsDoItem.length} {empsDoItem.length === 1 ? 'empenho' : 'empenhos'}</span>
-                        {algumAtrasado && <span className="badge badge-danger"><ShieldAlert size={11} aria-hidden="true" /> Atrasado</span>}
-                        {ehAdmin && (
-                          <button className="btn btn-primary btn-sm" onClick={(e) => { e.stopPropagation(); abrirModalEmpenho(i) }}>
-                            <Plus size={12} aria-hidden="true" /> Empenho
-                          </button>
-                        )}
-                      </div>
-                    </div>
+      {contratos.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {contratos.map(c => {
+            const vencContrato = statusVencimento(c.data_vencimento)
+            const itensDoContrato = itens.filter(i => i.contrato_id === c.id)
+            return (
+              <div key={c.id} className="card card-pad">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {c.tipo === 'ATA' ? <ScrollText size={16} aria-hidden="true" className="text-muted" /> : <FileText size={16} aria-hidden="true" className="text-muted" />}
+                    <span style={{ fontWeight: 600 }}>
+                      {c.numero_ata || 'Sem número'} <span className="text-muted" style={{ fontWeight: 500, fontSize: 12 }}>({c.tipo === 'ATA' ? 'Ata' : 'Contrato'})</span>
+                    </span>
+                    {vencContrato && <span className={`badge ${vencContrato.cls}`}>{vencContrato.label}</span>}
+                    {c.viabilidade && <span className="badge badge-neutral">Viabilidade: {c.viabilidade === 'ALTA' ? 'Alta' : c.viabilidade === 'MEDIA' ? 'Média' : 'Baixa'}</span>}
+                  </div>
+                  {ehAdmin && (
+                    <button className="btn btn-secondary btn-sm" onClick={() => setModalItem(c.id)}>
+                      <Plus size={13} aria-hidden="true" /> Adicionar item
+                    </button>
+                  )}
+                </div>
 
-                    {aberto && (
-                      <div style={{ padding: '0 14px 14px 38px', borderTop: '1px solid var(--border)' }}>
-                        {empsDoItem.length === 0 ? (
-                          <div className="text-muted" style={{ fontSize: 12, padding: '10px 0' }}>Nenhum empenho lançado ainda.</div>
-                        ) : (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
-                            {empsDoItem.map(em => {
-                              const empAberto = empenhoExpandido === em.empenho_id
-                              const anexosDoEmpenho = anexosPorEmpenho[em.empenho_id] || []
-                              return (
-                                <div key={em.empenho_id} style={{ background: 'var(--bg)', borderRadius: 6, overflow: 'hidden' }}>
-                                  <div
-                                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', cursor: 'pointer' }}
-                                    onClick={() => setEmpenhoExpandido(empAberto ? null : em.empenho_id)}
-                                  >
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                      {empAberto ? <ChevronDown size={13} aria-hidden="true" /> : <ChevronRight size={13} aria-hidden="true" />}
-                                      <span className="mono" style={{ fontSize: 12, fontWeight: 600 }}>{em.numero_empenho || 'NE'}</span>
-                                      {em.entrega_atrasada && <span className="badge badge-danger"><ShieldAlert size={10} aria-hidden="true" /> Atrasada</span>}
-                                      {anexosDoEmpenho.length > 0 && <span className="badge badge-neutral"><Paperclip size={10} aria-hidden="true" /> {anexosDoEmpenho.length}</span>}
-                                    </div>
-                                    <div style={{ minWidth: 120 }} onClick={e => e.stopPropagation()}>
-                                      <SaldoBar contratado={Number(em.quantidade_empenhada)} usado={Number(em.quantidade_entregue)} labelUsado="entregue" />
-                                    </div>
-                                  </div>
+                {itensDoContrato.length === 0 ? (
+                  <div className="text-muted" style={{ fontSize: 13 }}>Nenhum item cadastrado ainda.</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {itensDoContrato.map(i => {
+                      const empsDoItem = empenhosPorItem[i.item_contrato_id] || []
+                      const aberto = itemExpandido === i.item_contrato_id
+                      const algumAtrasado = empsDoItem.some(em => em.entrega_atrasada)
+                      return (
+                        <div key={i.item_contrato_id} style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                          <div
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', cursor: 'pointer' }}
+                            onClick={() => setItemExpandido(aberto ? null : i.item_contrato_id)}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+                              {aberto ? <ChevronDown size={15} aria-hidden="true" /> : <ChevronRight size={15} aria-hidden="true" />}
+                              <span style={{ fontWeight: 500, fontSize: 13 }}>
+                                {i.produto}
+                                {(i.marca || i.modelo) && (
+                                  <span className="text-muted" style={{ fontWeight: 400, fontSize: 12 }}>
+                                    {' '}— {[i.marca, i.modelo].filter(Boolean).join(' / ')}
+                                  </span>
+                                )}
+                              </span>
+                              <div style={{ minWidth: 150, maxWidth: 200, flex: 1 }}>
+                                <SaldoBar contratado={Number(i.quantidade_contratada)} usado={Number(i.quantidade_empenhada)} />
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span className="badge badge-neutral">{empsDoItem.length} {empsDoItem.length === 1 ? 'empenho' : 'empenhos'}</span>
+                              {algumAtrasado && <span className="badge badge-danger"><ShieldAlert size={11} aria-hidden="true" /> Atrasado</span>}
+                              {ehAdmin && (
+                                <button className="btn btn-primary btn-sm" onClick={(e) => { e.stopPropagation(); abrirModalEmpenho(i) }}>
+                                  <Plus size={12} aria-hidden="true" /> Empenho
+                                </button>
+                              )}
+                            </div>
+                          </div>
 
-                                  {empAberto && (
-                                    <div style={{ padding: '0 12px 12px', borderTop: '1px solid var(--border)' }}>
-                                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, padding: '10px 0', fontSize: 12 }}>
-                                        {em.data_limite_entrega && <div className="text-muted">Prazo: {new Date(em.data_limite_entrega).toLocaleDateString('pt-BR')}</div>}
-                                        {em.local_entrega && <div className="text-muted" style={{ display: 'flex', alignItems: 'center', gap: 4 }}><MapPin size={11} aria-hidden="true" /> {em.local_entrega}</div>}
-                                      </div>
-                                      <button className="btn btn-secondary btn-sm" onClick={() => setModalEntrega(em.empenho_id)}>
-                                        <Truck size={12} aria-hidden="true" /> Registrar entrega
-                                      </button>
-                                      <div style={{ marginTop: 12 }}>
-                                        <div className="section-title" style={{ margin: '0 0 8px' }}>Documentos</div>
-                                        {anexosDoEmpenho.length === 0 ? (
-                                          <div className="text-muted" style={{ fontSize: 12, marginBottom: 8 }}>Nenhum documento anexado.</div>
-                                        ) : (
-                                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
-                                            {anexosDoEmpenho.map(a => (
-                                              <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
-                                                <FileText size={13} aria-hidden="true" style={{ flexShrink: 0 }} />
-                                                <button onClick={() => abrirAnexo(a)} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontWeight: 500, padding: 0, textAlign: 'left' }}>
-                                                  {a.nome_arquivo}
-                                                </button>
-                                                <span className="badge badge-neutral" style={{ fontSize: 10 }}>{LABELS_TIPO[a.tipo_documento] || 'Documento'}</span>
-                                                {ehAdmin && (
-                                                  <button className="icon-btn" onClick={() => removerAnexo(a)} aria-label="Remover documento" title="Remover" style={{ width: 24, height: 24 }}>
-                                                    <Trash2 size={12} aria-hidden="true" />
-                                                  </button>
-                                                )}
+                          {aberto && (
+                            <div style={{ padding: '0 14px 14px 38px', borderTop: '1px solid var(--border)' }}>
+                              {empsDoItem.length === 0 ? (
+                                <div className="text-muted" style={{ fontSize: 12, padding: '10px 0' }}>Nenhum empenho lançado ainda.</div>
+                              ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
+                                  {empsDoItem.map(em => {
+                                    const empAberto = empenhoExpandido === em.empenho_id
+                                    const anexosDoEmpenho = anexosPorEmpenho[em.empenho_id] || []
+                                    return (
+                                      <div key={em.empenho_id} style={{ background: 'var(--bg)', borderRadius: 6, overflow: 'hidden' }}>
+                                        <div
+                                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', cursor: 'pointer' }}
+                                          onClick={() => setEmpenhoExpandido(empAberto ? null : em.empenho_id)}
+                                        >
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            {empAberto ? <ChevronDown size={13} aria-hidden="true" /> : <ChevronRight size={13} aria-hidden="true" />}
+                                            <span className="mono" style={{ fontSize: 12, fontWeight: 600 }}>{em.numero_empenho || 'NE'}</span>
+                                            {em.entrega_atrasada && <span className="badge badge-danger"><ShieldAlert size={10} aria-hidden="true" /> Atrasada</span>}
+                                            {anexosDoEmpenho.length > 0 && <span className="badge badge-neutral"><Paperclip size={10} aria-hidden="true" /> {anexosDoEmpenho.length}</span>}
+                                          </div>
+                                          <div style={{ minWidth: 120 }} onClick={e => e.stopPropagation()}>
+                                            <SaldoBar contratado={Number(em.quantidade_empenhada)} usado={Number(em.quantidade_entregue)} labelUsado="entregue" />
+                                          </div>
+                                        </div>
+
+                                        {empAberto && (
+                                          <div style={{ padding: '0 12px 12px', borderTop: '1px solid var(--border)' }}>
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, padding: '10px 0', fontSize: 12 }}>
+                                              {em.data_limite_entrega && <div className="text-muted">Prazo: {new Date(em.data_limite_entrega).toLocaleDateString('pt-BR')}</div>}
+                                              {em.local_entrega && <div className="text-muted" style={{ display: 'flex', alignItems: 'center', gap: 4 }}><MapPin size={11} aria-hidden="true" /> {em.local_entrega}</div>}
+                                            </div>
+                                            <button className="btn btn-secondary btn-sm" onClick={() => setModalEntrega(em.empenho_id)}>
+                                              <Truck size={12} aria-hidden="true" /> Registrar entrega
+                                            </button>
+                                            <div style={{ marginTop: 12 }}>
+                                              <div className="section-title" style={{ margin: '0 0 8px' }}>Documentos</div>
+                                              {anexosDoEmpenho.length === 0 ? (
+                                                <div className="text-muted" style={{ fontSize: 12, marginBottom: 8 }}>Nenhum documento anexado.</div>
+                                              ) : (
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+                                                  {anexosDoEmpenho.map(a => (
+                                                    <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                                                      <FileText size={13} aria-hidden="true" style={{ flexShrink: 0 }} />
+                                                      <button onClick={() => abrirAnexo(a)} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontWeight: 500, padding: 0, textAlign: 'left' }}>
+                                                        {a.nome_arquivo}
+                                                      </button>
+                                                      <span className="badge badge-neutral" style={{ fontSize: 10 }}>{LABELS_TIPO[a.tipo_documento] || 'Documento'}</span>
+                                                      {ehAdmin && (
+                                                        <button className="icon-btn" onClick={() => removerAnexo(a)} aria-label="Remover documento" title="Remover" style={{ width: 24, height: 24 }}>
+                                                          <Trash2 size={12} aria-hidden="true" />
+                                                        </button>
+                                                      )}
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              )}
+                                              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                                <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer' }}>
+                                                  <Upload size={12} aria-hidden="true" />
+                                                  {enviandoAnexo === em.empenho_id ? 'Enviando...' : 'Anexar nota de empenho'}
+                                                  <input type="file" accept="application/pdf" style={{ display: 'none' }} disabled={enviandoAnexo === em.empenho_id} onChange={ev => enviarAnexo(em.empenho_id, ev.target.files[0], 'nota_empenho')} />
+                                                </label>
+                                                <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer' }}>
+                                                  <Upload size={12} aria-hidden="true" />
+                                                  {enviandoAnexo === em.empenho_id ? 'Enviando...' : 'Anexar nota fiscal'}
+                                                  <input type="file" accept="application/pdf" style={{ display: 'none' }} disabled={enviandoAnexo === em.empenho_id} onChange={ev => enviarAnexo(em.empenho_id, ev.target.files[0], 'nota_fiscal')} />
+                                                </label>
                                               </div>
-                                            ))}
+                                            </div>
                                           </div>
                                         )}
-                                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                                          <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer' }}>
-                                            <Upload size={12} aria-hidden="true" />
-                                            {enviandoAnexo === em.empenho_id ? 'Enviando...' : 'Anexar nota de empenho'}
-                                            <input type="file" accept="application/pdf" style={{ display: 'none' }} disabled={enviandoAnexo === em.empenho_id} onChange={ev => enviarAnexo(em.empenho_id, ev.target.files[0], 'nota_empenho')} />
-                                          </label>
-                                          <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer' }}>
-                                            <Upload size={12} aria-hidden="true" />
-                                            {enviandoAnexo === em.empenho_id ? 'Enviando...' : 'Anexar nota fiscal'}
-                                            <input type="file" accept="application/pdf" style={{ display: 'none' }} disabled={enviandoAnexo === em.empenho_id} onChange={ev => enviarAnexo(em.empenho_id, ev.target.files[0], 'nota_fiscal')} />
-                                          </label>
-                                        </div>
                                       </div>
-                                    </div>
-                                  )}
+                                    )
+                                  })}
                                 </div>
-                              )
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    )}
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
-                )
-              })}
-            </div>
-          )}
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
 
@@ -787,9 +796,9 @@ export default function ProcessoDetalhe() {
       {modalItem && (
         <Modal
           titulo="Adicionar item ao contrato"
-          onClose={() => setModalItem(false)}
+          onClose={() => setModalItem(null)}
           footer={<>
-            <button className="btn btn-secondary" onClick={() => setModalItem(false)}>Cancelar</button>
+            <button className="btn btn-secondary" onClick={() => setModalItem(null)}>Cancelar</button>
             <button className="btn btn-primary" onClick={salvarItem}>Salvar item</button>
           </>}
         >
