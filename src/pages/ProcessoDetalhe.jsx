@@ -38,8 +38,8 @@ export default function ProcessoDetalhe() {
   const [modalProcesso, setModalProcesso] = useState(false)
   const [modalAtaContrato, setModalAtaContrato] = useState(null) // 'ATA' | 'EMPENHO_DIRETO' | null
   const [modalItem, setModalItem] = useState(null) // contrato_id de destino, ou null se fechado
-  const [modalEmpenho, setModalEmpenho] = useState(null) // item_contrato_id
-  const [modalEntrega, setModalEntrega] = useState(null) // empenho_id
+  const [modalEmpenho, setModalEmpenho] = useState(null) // contrato_id de destino (pedido agora é por contrato, com múltiplos itens)
+  const [modalEntrega, setModalEntrega] = useState(null) // empenho_item_id
   const [salvandoEmpenho, setSalvandoEmpenho] = useState(false)
   const [salvandoAtaContrato, setSalvandoAtaContrato] = useState(false)
   const [enviandoAnexo, setEnviandoAnexo] = useState(null)
@@ -58,10 +58,11 @@ export default function ProcessoDetalhe() {
   const [itensForm, setItensForm] = useState([novoItemLinha()])
   const [formItem, setFormItem] = useState({ produto_nome_livre: '', quantidade_contratada: '', valor_unitario: '', prazo_entrega_dias: 30 })
   const [formEmpenho, setFormEmpenho] = useState({
-    numero_empenho: '', data_emissao: hoje(), quantidade_empenhada: '',
+    numero_empenho: '', data_emissao: hoje(),
     local_entrega: '', endereco_entrega: '', cidade_entrega: '', uf_entrega: '',
     responsavel_recebimento: '', telefone_entrega: '',
   })
+  const [linhasPedido, setLinhasPedido] = useState({}) // item_contrato_id -> string da quantidade digitada
   const [formEntrega, setFormEntrega] = useState({ data_envio: hoje(), quantidade_entregue: '' })
 
   async function carregar() {
@@ -273,14 +274,14 @@ export default function ProcessoDetalhe() {
     carregar()
   }
 
-  // ---------- Empenho ----------
-  function abrirModalEmpenho(item) {
+  // ---------- Empenho (Pedido) ----------
+  function abrirModalEmpenho(contratoId) {
     const orgao = processo?.orgaos
     const enderecoSugerido = orgao
       ? [orgao.logradouro, orgao.numero, orgao.bairro, orgao.cidade].filter(Boolean).join(', ')
       : ''
     setFormEmpenho({
-      numero_empenho: '', data_emissao: hoje(), quantidade_empenhada: '',
+      numero_empenho: '', data_emissao: hoje(),
       local_entrega: orgao?.nome || '',
       endereco_entrega: enderecoSugerido,
       cidade_entrega: orgao?.cidade || '',
@@ -288,10 +289,11 @@ export default function ProcessoDetalhe() {
       responsavel_recebimento: '',
       telefone_entrega: orgao?.telefone || '',
     })
+    setLinhasPedido({})
     setArquivoNotaEmpenho(null)
     setArquivoNotaFiscal(null)
     setErro('')
-    setModalEmpenho(item.item_contrato_id)
+    setModalEmpenho(contratoId)
   }
 
   async function subirArquivoEmpenho(empenhoId, arquivo, tipoDocumento) {
@@ -316,13 +318,19 @@ export default function ProcessoDetalhe() {
   async function salvarEmpenho(e) {
     e.preventDefault()
     setErro('')
+
+    const linhasValidas = Object.entries(linhasPedido).filter(([, qtd]) => qtd !== '' && Number(qtd) > 0)
+    if (linhasValidas.length === 0) {
+      setErro('Informe a quantidade solicitada de pelo menos um item.')
+      return
+    }
+
     setSalvandoEmpenho(true)
 
     const { data: novoEmpenho, error } = await supabase.from('empenhos').insert({
-      item_contrato_id: modalEmpenho,
+      contrato_id: modalEmpenho,
       numero_empenho: formEmpenho.numero_empenho,
       data_emissao: formEmpenho.data_emissao,
-      quantidade_empenhada: Number(formEmpenho.quantidade_empenhada),
       local_entrega: formEmpenho.local_entrega || null,
       endereco_entrega: formEmpenho.endereco_entrega || null,
       cidade_entrega: formEmpenho.cidade_entrega || null,
@@ -333,6 +341,18 @@ export default function ProcessoDetalhe() {
 
     if (error) {
       setErro(limparMensagemBloqueio(error.message))
+      setSalvandoEmpenho(false)
+      return
+    }
+
+    const linhasParaInserir = linhasValidas.map(([itemContratoId, qtd]) => ({
+      empenho_id: novoEmpenho.id,
+      item_contrato_id: itemContratoId,
+      quantidade_empenhada: Number(qtd),
+    }))
+    const { error: erroLinhas } = await supabase.from('empenho_itens').insert(linhasParaInserir)
+    if (erroLinhas) {
+      setErro(limparMensagemBloqueio(erroLinhas.message))
       setSalvandoEmpenho(false)
       return
     }
@@ -349,7 +369,7 @@ export default function ProcessoDetalhe() {
 
     setSalvandoEmpenho(false)
     if (erros.length > 0) {
-      setErro('Empenho lançado, mas houve problema com anexos: ' + erros.join(' '))
+      setErro('Pedido lançado, mas houve problema com anexos: ' + erros.join(' '))
       carregar()
       return
     }
@@ -361,7 +381,7 @@ export default function ProcessoDetalhe() {
     e.preventDefault()
     setErro('')
     const { error } = await supabase.from('entregas').insert({
-      empenho_id: modalEntrega,
+      empenho_item_id: modalEntrega,
       data_envio: formEntrega.data_envio,
       quantidade_entregue: Number(formEntrega.quantidade_entregue),
     })
@@ -483,9 +503,14 @@ export default function ProcessoDetalhe() {
                     {c.viabilidade && <span className="badge badge-neutral">Viabilidade: {c.viabilidade === 'ALTA' ? 'Alta' : c.viabilidade === 'MEDIA' ? 'Média' : 'Baixa'}</span>}
                   </div>
                   {ehAdmin && (
-                    <button className="btn btn-secondary btn-sm" onClick={() => setModalItem(c.id)}>
-                      <Plus size={13} aria-hidden="true" /> Adicionar item
-                    </button>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button className="btn btn-secondary btn-sm" onClick={() => setModalItem(c.id)}>
+                        <Plus size={13} aria-hidden="true" /> Adicionar item
+                      </button>
+                      <button className="btn btn-primary btn-sm" onClick={() => abrirModalEmpenho(c.id)}>
+                        <Plus size={13} aria-hidden="true" /> Novo pedido
+                      </button>
+                    </div>
                   )}
                 </div>
 
@@ -550,9 +575,9 @@ export default function ProcessoDetalhe() {
                         <tbody>
                           {pedidosDoContrato.map(em => (
                             <tr
-                              key={em.empenho_id}
+                              key={em.empenho_item_id}
                               style={{ cursor: 'pointer' }}
-                              onClick={() => { setAbaPorContrato(prev => ({ ...prev, [c.id]: 'itens' })); setItemExpandido(em._item_id); setEmpenhoExpandido(em.empenho_id) }}
+                              onClick={() => { setAbaPorContrato(prev => ({ ...prev, [c.id]: 'itens' })); setItemExpandido(em._item_id); setEmpenhoExpandido(em.empenho_item_id) }}
                             >
                               <td className="mono">{em.numero_empenho || 'NE'}</td>
                               <td>{em._produto}</td>
@@ -596,11 +621,6 @@ export default function ProcessoDetalhe() {
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                               <span className="badge badge-neutral">{empsDoItem.length} {empsDoItem.length === 1 ? 'empenho' : 'empenhos'}</span>
                               {algumAtrasado && <span className="badge badge-danger"><ShieldAlert size={11} aria-hidden="true" /> Atrasado</span>}
-                              {ehAdmin && (
-                                <button className="btn btn-primary btn-sm" onClick={(e) => { e.stopPropagation(); abrirModalEmpenho(i) }}>
-                                  <Plus size={12} aria-hidden="true" /> Empenho
-                                </button>
-                              )}
                             </div>
                           </div>
 
@@ -611,13 +631,13 @@ export default function ProcessoDetalhe() {
                               ) : (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
                                   {empsDoItem.map(em => {
-                                    const empAberto = empenhoExpandido === em.empenho_id
+                                    const empAberto = empenhoExpandido === em.empenho_item_id
                                     const anexosDoEmpenho = anexosPorEmpenho[em.empenho_id] || []
                                     return (
-                                      <div key={em.empenho_id} style={{ background: 'var(--bg)', borderRadius: 6, overflow: 'hidden' }}>
+                                      <div key={em.empenho_item_id} style={{ background: 'var(--bg)', borderRadius: 6, overflow: 'hidden' }}>
                                         <div
                                           style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', cursor: 'pointer' }}
-                                          onClick={() => setEmpenhoExpandido(empAberto ? null : em.empenho_id)}
+                                          onClick={() => setEmpenhoExpandido(empAberto ? null : em.empenho_item_id)}
                                         >
                                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                             {empAberto ? <ChevronDown size={13} aria-hidden="true" /> : <ChevronRight size={13} aria-hidden="true" />}
@@ -636,7 +656,7 @@ export default function ProcessoDetalhe() {
                                               {em.data_limite_entrega && <div className="text-muted">Prazo: {new Date(em.data_limite_entrega).toLocaleDateString('pt-BR')}</div>}
                                               {em.local_entrega && <div className="text-muted" style={{ display: 'flex', alignItems: 'center', gap: 4 }}><MapPin size={11} aria-hidden="true" /> {em.local_entrega}</div>}
                                             </div>
-                                            <button className="btn btn-secondary btn-sm" onClick={() => setModalEntrega(em.empenho_id)}>
+                                            <button className="btn btn-secondary btn-sm" onClick={() => setModalEntrega(em.empenho_item_id)}>
                                               <Truck size={12} aria-hidden="true" /> Registrar entrega
                                             </button>
                                             <div style={{ marginTop: 12 }}>
@@ -912,80 +932,131 @@ export default function ProcessoDetalhe() {
         </Modal>
       )}
 
-      {/* Modal: novo empenho */}
-      {modalEmpenho && (
-        <Modal
-          titulo="Lançar empenho"
-          onClose={() => { setModalEmpenho(null); setErro('') }}
-          footer={<>
-            <button className="btn btn-secondary" onClick={() => { setModalEmpenho(null); setErro('') }} disabled={salvandoEmpenho}>Cancelar</button>
-            <button className="btn btn-primary" onClick={salvarEmpenho} disabled={salvandoEmpenho}>{salvandoEmpenho ? 'Lançando...' : 'Lançar empenho'}</button>
-          </>}
-        >
-          {erro && (
-            <div className="alert-banner danger">
-              <ShieldAlert size={15} aria-hidden="true" style={{ flexShrink: 0, marginTop: 1 }} />
-              <span>{erro}</span>
-            </div>
-          )}
-          <form onSubmit={salvarEmpenho} className="form-grid">
-            <div className="form-field">
-              <label>Número do empenho (NE)</label>
-              <input value={formEmpenho.numero_empenho} onChange={e => setFormEmpenho({ ...formEmpenho, numero_empenho: e.target.value })} placeholder="NE-2026-001" />
-            </div>
-            <div className="form-field">
-              <label>Data de emissão</label>
-              <input type="date" value={formEmpenho.data_emissao} onChange={e => setFormEmpenho({ ...formEmpenho, data_emissao: e.target.value })} required />
-            </div>
-            <div className="form-field full">
-              <label>Quantidade empenhada</label>
-              <input type="number" min={0.01} step="0.01" value={formEmpenho.quantidade_empenhada} onChange={e => setFormEmpenho({ ...formEmpenho, quantidade_empenhada: e.target.value })} required />
-            </div>
+      {/* Modal: novo pedido (empenho com múltiplos itens) */}
+      {modalEmpenho && (() => {
+        const contratoDoModal = contratos.find(c => c.id === modalEmpenho)
+        const itensDoModal = itens.filter(i => i.contrato_id === modalEmpenho)
+        const valorTotalPedido = itensDoModal.reduce((soma, i) => {
+          const qtd = Number(linhasPedido[i.item_contrato_id]) || 0
+          return soma + qtd * Number(i.valor_unitario)
+        }, 0)
+        return (
+          <Modal
+            largo
+            titulo="Adicionar pedido"
+            onClose={() => { setModalEmpenho(null); setErro('') }}
+            footer={<>
+              <button className="btn btn-secondary" onClick={() => { setModalEmpenho(null); setErro('') }} disabled={salvandoEmpenho}>Cancelar</button>
+              <button className="btn btn-primary" onClick={salvarEmpenho} disabled={salvandoEmpenho}>{salvandoEmpenho ? 'Lançando...' : 'Confirmar'}</button>
+            </>}
+          >
+            <div className="text-muted" style={{ fontSize: 13, marginTop: -8, marginBottom: 16 }}>{contratoDoModal?.numero_ata || 'Sem número'}</div>
 
-            <div className="form-field full" style={{ borderTop: '1px solid var(--border)', paddingTop: 14, marginTop: 4 }}>
-              <label style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Documentos (PDF, opcional)</label>
-            </div>
-            <div className="form-field">
-              <label>Nota de empenho</label>
-              <input type="file" accept="application/pdf" onChange={e => setArquivoNotaEmpenho(e.target.files[0] || null)} />
-              {arquivoNotaEmpenho && <span className="text-muted" style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}><FileText size={11} aria-hidden="true" /> {arquivoNotaEmpenho.name}</span>}
-            </div>
-            <div className="form-field">
-              <label>Nota fiscal</label>
-              <input type="file" accept="application/pdf" onChange={e => setArquivoNotaFiscal(e.target.files[0] || null)} />
-              {arquivoNotaFiscal && <span className="text-muted" style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}><FileText size={11} aria-hidden="true" /> {arquivoNotaFiscal.name}</span>}
-            </div>
+            {erro && (
+              <div className="alert-banner danger" style={{ marginBottom: 16 }}>
+                <ShieldAlert size={15} aria-hidden="true" style={{ flexShrink: 0, marginTop: 1 }} />
+                <span>{erro}</span>
+              </div>
+            )}
+            <form onSubmit={salvarEmpenho}>
+              <div className="form-grid">
+                <div className="form-field">
+                  <label>Nº do empenho *</label>
+                  <input value={formEmpenho.numero_empenho} onChange={e => setFormEmpenho({ ...formEmpenho, numero_empenho: e.target.value })} required placeholder="Ex: 2026NE0001" />
+                </div>
+                <div className="form-field">
+                  <label>Arquivo do empenho</label>
+                  <input type="file" accept="application/pdf" onChange={e => setArquivoNotaEmpenho(e.target.files[0] || null)} />
+                </div>
+                <div className="form-field">
+                  <label>Nota fiscal</label>
+                  <input type="file" accept="application/pdf" onChange={e => setArquivoNotaFiscal(e.target.files[0] || null)} />
+                </div>
+                <div className="form-field">
+                  <label>Data de emissão</label>
+                  <input type="date" value={formEmpenho.data_emissao} onChange={e => setFormEmpenho({ ...formEmpenho, data_emissao: e.target.value })} required />
+                </div>
+              </div>
 
-            <div className="form-field full" style={{ borderTop: '1px solid var(--border)', paddingTop: 14, marginTop: 4 }}>
-              <label style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Local de entrega</label>
-            </div>
-            <div className="form-field full">
-              <label>Local / unidade de destino</label>
-              <input value={formEmpenho.local_entrega} onChange={e => setFormEmpenho({ ...formEmpenho, local_entrega: e.target.value })} placeholder="Ex: Hospital Municipal, Almoxarifado Central" />
-            </div>
-            <div className="form-field full">
-              <label>Endereço</label>
-              <input value={formEmpenho.endereco_entrega} onChange={e => setFormEmpenho({ ...formEmpenho, endereco_entrega: e.target.value })} placeholder="Rua, número, bairro" />
-            </div>
-            <div className="form-field">
-              <label>Cidade</label>
-              <input value={formEmpenho.cidade_entrega} onChange={e => setFormEmpenho({ ...formEmpenho, cidade_entrega: e.target.value })} />
-            </div>
-            <div className="form-field">
-              <label>UF</label>
-              <input value={formEmpenho.uf_entrega} onChange={e => setFormEmpenho({ ...formEmpenho, uf_entrega: e.target.value.toUpperCase() })} maxLength={2} />
-            </div>
-            <div className="form-field">
-              <label>Responsável pelo recebimento</label>
-              <input value={formEmpenho.responsavel_recebimento} onChange={e => setFormEmpenho({ ...formEmpenho, responsavel_recebimento: e.target.value })} placeholder="Nome de quem recebe" />
-            </div>
-            <div className="form-field">
-              <label>Telefone de contato</label>
-              <input value={formEmpenho.telefone_entrega} onChange={e => setFormEmpenho({ ...formEmpenho, telefone_entrega: e.target.value })} placeholder="(00) 0000-0000" />
-            </div>
-          </form>
-        </Modal>
-      )}
+              <div className="section-title" style={{ marginTop: 18 }}>Dados de entrega</div>
+              <div className="form-grid">
+                <div className="form-field full">
+                  <label>Local / unidade de destino</label>
+                  <input value={formEmpenho.local_entrega} onChange={e => setFormEmpenho({ ...formEmpenho, local_entrega: e.target.value })} placeholder="Ex: Hospital Municipal, Almoxarifado Central" />
+                </div>
+                <div className="form-field full">
+                  <label>Endereço de entrega</label>
+                  <input value={formEmpenho.endereco_entrega} onChange={e => setFormEmpenho({ ...formEmpenho, endereco_entrega: e.target.value })} placeholder="Endereço completo" />
+                </div>
+                <div className="form-field">
+                  <label>Cidade</label>
+                  <input value={formEmpenho.cidade_entrega} onChange={e => setFormEmpenho({ ...formEmpenho, cidade_entrega: e.target.value })} />
+                </div>
+                <div className="form-field">
+                  <label>UF</label>
+                  <input value={formEmpenho.uf_entrega} onChange={e => setFormEmpenho({ ...formEmpenho, uf_entrega: e.target.value.toUpperCase() })} maxLength={2} />
+                </div>
+                <div className="form-field">
+                  <label>Responsável pelo recebimento</label>
+                  <input value={formEmpenho.responsavel_recebimento} onChange={e => setFormEmpenho({ ...formEmpenho, responsavel_recebimento: e.target.value })} placeholder="Nome do responsável" />
+                </div>
+                <div className="form-field">
+                  <label>Telefone de contato</label>
+                  <input value={formEmpenho.telefone_entrega} onChange={e => setFormEmpenho({ ...formEmpenho, telefone_entrega: e.target.value })} placeholder="(00) 0000-0000" />
+                </div>
+              </div>
+
+              <div className="section-title" style={{ marginTop: 18 }}>Itens do pedido *</div>
+              <div className="itens-form-table-wrap">
+                <table className="itens-form-table">
+                  <thead>
+                    <tr>
+                      <th>Item</th>
+                      <th>Descrição</th>
+                      <th className="col-unidade">Unidade</th>
+                      <th className="col-qtd">Qtd. solicitada</th>
+                      <th className="col-valor">Valor unitário</th>
+                      <th className="col-valor">Valor total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {itensDoModal.map((i, idx) => {
+                      const saldo = Number(i.saldo_a_empenhar)
+                      const qtdDigitada = linhasPedido[i.item_contrato_id] ?? ''
+                      const totalLinha = (Number(qtdDigitada) || 0) * Number(i.valor_unitario)
+                      return (
+                        <tr key={i.item_contrato_id}>
+                          <td>{idx + 1}</td>
+                          <td>
+                            {i.produto}
+                            {(i.marca || i.modelo) && <span className="text-muted" style={{ fontSize: 11 }}> — {[i.marca, i.modelo].filter(Boolean).join(' / ')}</span>}
+                          </td>
+                          <td className="col-unidade text-muted">UN</td>
+                          <td className="col-qtd">
+                            <input
+                              type="number" min={0} max={saldo} step="0.01"
+                              value={qtdDigitada}
+                              disabled={saldo <= 0}
+                              onChange={e => setLinhasPedido(prev => ({ ...prev, [i.item_contrato_id]: e.target.value }))}
+                            />
+                            <div className="text-muted" style={{ fontSize: 10.5, marginTop: 2 }}>{saldo.toLocaleString('pt-BR')} disponíveis</div>
+                          </td>
+                          <td className="col-valor">{Number(i.valor_unitario).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                          <td className="col-total">{totalLinha.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="itens-form-rodape">
+                <span />
+                <span className="itens-form-total">Valor total do pedido: {valorTotalPedido.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+              </div>
+            </form>
+          </Modal>
+        )
+      })()}
 
       {/* Modal: registrar entrega */}
       {modalEntrega && (
